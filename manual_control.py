@@ -251,6 +251,7 @@ class KeyboardControl(object):
                 if self._is_quit_shortcut(event.key):
                     return True
                 elif event.key == K_BACKSPACE:
+                    world.camera_manager.ridar_sensor_on()
                     world.restart()
                 elif event.key == K_F1:
                     world.hud.toggle_info()
@@ -716,6 +717,15 @@ class CameraManager(object):
     def toggle_recording(self):
         self.recording = not self.recording
         self.hud.notification('Recording %s' % ('On' if self.recording else 'Off'))
+
+    def ridar_sensor_on(self):
+        self.sensor = self._parent.get_world().spawn_actor(
+            self.sensors[6][-1],
+            self._camera_transforms[self.transform_index],
+            attach_to=self._parent)
+        weak_self = weakref.ref(self)
+        self.sensor.listen(lambda image: CameraManager._parse_image(weak_self, image))
+        self.index = 6
 
     def render(self, display):
         if self.surface is not None:

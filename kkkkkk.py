@@ -81,6 +81,7 @@ import weakref
 import sys
 import time
 
+
 try:
     import pygame
     from pygame.locals import KMOD_CTRL
@@ -198,12 +199,6 @@ class World(object):
         # Spawn the player.
         if self.player is not None:
             spawn_point = self.player.get_transform()
-            # spawn_point.location.z += 2.0
-            # spawn_point.rotation.roll = 0.0
-            # spawn_point.rotation.pitch = 0.0
-            # spawn_point.location.x = -50.2
-            # spawn_point.location.y = 183.5
-            # spawn_point.location.z += 2.0
             spawn_point.location.x = -74.4
             spawn_point.location.y = -15.0
             spawn_point.location.z += 2.0
@@ -297,6 +292,7 @@ class KeyboardControl(object):
                     return True
                 elif event.key == K_BACKSPACE:
                     start = True
+                    world.camera_manager.ridar_sensor_on()
                     world.restart()
                 elif event.key == K_F1:
                     world.hud.toggle_info()
@@ -376,13 +372,12 @@ class KeyboardControl(object):
     def do_action(self, world, milliseconds, action):
         global reward
         # self._control.throttle = 1.0
-
         if action == 0:
             self._control.throttle = 1.0
         else:
             self._control.throttle = 0
 
-        steer_increment = 5e-4 * milliseconds   #5e-4
+        steer_increment = 10e-3 * milliseconds   #5e-4
         if action == 1:
             self._steer_cache = self._steer_cache - steer_increment
         elif action == 2:
@@ -392,7 +387,6 @@ class KeyboardControl(object):
 
         if action == 3:
             self._control.brake = 1
-            reward = reward - 0.1
         else :
             self._control.brake = 0
 
@@ -486,16 +480,16 @@ class HUD(object):
         vehicles = world.world.get_actors().filter('vehicle.*')
         # print((3.6 * math.sqrt(v.x**2 + v.y**2 + v.z**2))/50.)
         if (3.6 * math.sqrt(v.x**2 + v.y**2 + v.z**2)) < 0.0005:
-            reward = reward -0.1
+            reward = reward -1
         elif (3.6 * math.sqrt(v.x**2 + v.y**2 + v.z**2)) != 0:
-            reward = reward + ((3.6 * math.sqrt(v.x**2 + v.y**2 + v.z**2))/100)
+            reward = reward + ((3.6 * math.sqrt(v.x**2 + v.y**2 + v.z**2))/1000)
             # print("velocity ", (3.6 * math.sqrt(v.x**2 + v.y**2 + v.z**2)), reward)
 
         if colhist[self.frame_number] > 10:
-            reward = reward - 0.1
+            reward = reward - 1
             end_episode = True
         elif len(lane) == 11 or len(lane) > 13:
-            reward = reward - 0.1
+            reward = reward - 1
             end_episode = True
 
         self._info_text = [
@@ -806,6 +800,7 @@ class CameraManager(object):
             self.hud.notification(self.sensors[index][2])
         self.index = index
 
+
     def next_sensor(self):
         self.set_sensor(self.index + 1)
 
@@ -813,19 +808,27 @@ class CameraManager(object):
         self.recording = not self.recording
         self.hud.notification('Recording %s' % ('On' if self.recording else 'Off'))
 
+    def ridar_sensor_on(self):
+        self.sensor = self._parent.get_world().spawn_actor(
+            self.sensors[3][-1],
+            self._camera_transforms[self.transform_index], # self.transform_index
+            attach_to=self._parent)
+        weak_self = weakref.ref(self)
+        self.sensor.listen(lambda image: CameraManager._parse_image(weak_self, image))
+        self.index = 3
+        # x :list = 0 type hint
+        # print("lidar ",carla.LidarMeasurement.channels, carla.LidarMeasurement.get_point_count(carla.LidarMeasurement.channels) )
+
     def render(self, display):
         global scene
         if self.surface is not None:
             display.blit(self.surface, (0, 0))
-            scene = pygame.transform.scale(display, (480, 270))
+            scene = pygame.transform.scale(self.surface, (240, 270))
             scene = pygame.surfarray.array3d(scene)
-            scene = scene / 255
-            # print(scene)
-
-
             # print('sys.getsizeof(x): {0} bytes'.format(sys.getsizeof(scene)))
     @staticmethod
     def _parse_image(weak_self, image):
+        global scene
         self = weak_self()
         if not self:
             return
@@ -842,6 +845,11 @@ class CameraManager(object):
             lidar_img = np.zeros(lidar_img_size)
             lidar_img[tuple(lidar_data.T)] = (255, 255, 255)
             self.surface = pygame.surfarray.make_surface(lidar_img)
+            # scene = pygame.transform.scale(self.surface, (240, 270))
+            # lidar_img = np.resize(lidar_img, (240, 270, 3))
+            # scene = lidar_img
+            # scene = pygame.surfarray.array3d(scene)
+
         else:
             image.convert(self.sensors[self.index][1])
             array = np.frombuffer(image.raw_data, dtype=np.dtype("uint8"))
@@ -864,6 +872,7 @@ def game_loop(args):
     global next_scene
     global pre_scene
     global reward
+    global scene
     world = None
     ddd = TAgent()
     train_timestep = 0
@@ -880,47 +889,48 @@ def game_loop(args):
         hud = HUD(args.width, args.height)
         world = World(client.get_world(), hud, args.filter, args.rolename)
         controller = KeyboardControl(world, args.autopilot)
+
         clock = pygame.time.Clock()
-        # while not start:
-        #     world.tick(clock)
-        #     world.render(display)
-        #     pygame.display.flip()
-        #     ddd.replaymemory(pre_scene, reward, next_scene)
-        #     if controller.parse_events(client, world, clock):
-        #         return
-        # print("train start !!")
         while True:
+            if not start:
+                clock.tick_busy_loop(60)
+                if controller.parse_events(client, world, clock):
+                    return
+                world.tick(clock)
+                world.render(display)
+                pygame.display.flip()
+            else:
+                train_timestep += clock.tick_busy_loop(60)
+                action = ddd.get_action(scene)
+                pre_scene = scene
+                controller.do_action(world, clock.get_time(), action)
 
-            train_timestep += clock.tick_busy_loop(60)
-            action = ddd.get_action(scene)
-            pre_scene = scene
-            controller.do_action(world, clock.get_time(), action)
-            world.tick(clock)
-            world.render(display)
-            pygame.display.flip()
-            next_scene = scene
-            score += reward
-            ddd.replaymemory(pre_scene, reward, next_scene)
-            if train_timestep > 3000:
-                ddd.model_train()
-                train_timestep = 0
-                print("score ", score)
-                score = 0
-                # print("score ", score)
+                world.tick(clock)
+                world.render(display)
+                pygame.display.flip()
+                next_scene = scene
+                score += reward
+                ddd.replaymemory(pre_scene, action, reward, next_scene)
+                if train_timestep > 3000:
+                    ddd.model_train()
+                    train_timestep = 0
+                    print("score ", score)
+                    score = 0
+                reward = 0
+                if end_episode:
+                    ddd.update_target_model()
+                    print("episode ", episode, "score ", score, "epsilon ", ddd.epsilon)
+                    if episode > 1000:  # np.mean(score[-min(10, len(score)):]) > 5:
+                        # if episode > 200:
+                        ddd.model.save_weights("model_save/1_model.h5")
+                        print("weight file save")
+                        sys.exit()
+                    score = 0
 
-            reward = 0
-            if end_episode:
-                ddd.update_target_model()
-                print("episode ", episode, "score ", score, "epsilon ", ddd.epsilon)
-                if score > 150:# np.mean(score[-min(10, len(score)):]) > 5:
-                # if episode > 200:
-                    ddd.model.save_weights("model_save/1_model.h5")
-                    print("weight file save")
-                    sys.exit()
-                score = 0
+                if controller.parse_events(client, world, clock):
+                    return
 
-            if controller.parse_events(client, world, clock):
-                return
+
 
     finally:
 
@@ -928,8 +938,10 @@ def game_loop(args):
             client.stop_recorder()
 
         if world is not None:
-            world.destroy()
 
+            world.destroy()
+        ddd.model.save_weights("model_save/1_model.h5")
+        print("model save~~")
         pygame.quit()
 
 
@@ -964,8 +976,8 @@ def main():
     argparser.add_argument(
         '--res',
         metavar='WIDTHxHEIGHT',
-        default='1280x720',
-        help='window resolution (default: 640x360)') ## 1280*720
+        default='640x360',
+        help='window resolution (default: 1280*720)') ## 1280*720
     argparser.add_argument(
         '--filter',
         metavar='PATTERN',
