@@ -30,7 +30,6 @@ class TAgent:
         self.memory = deque(maxlen=1000)    # default 632 byte
         self.model = self.build_model()
         self.target_model = self.build_model()
-
         # self.model.load_weights("model_save/1_model.h5")
         # self.target_model.load_weights("model_save/1_model.h5")
         # print("load model", self.model.load_weights)

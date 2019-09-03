@@ -147,7 +147,8 @@ episode = 1
 steering = 0
 accel = 0
 brake = 0
-scene = 0
+scene = np.zeros((240, 270,3))
+scene2 = np.zeros((240, 270,3))
 next_scene = 0
 pre_scene = 0
 scene_row = 0
@@ -165,7 +166,6 @@ start = False
 # -- World ---------------------------------------------------------------------
 # ==============================================================================
 
-
 class World(object):
     def __init__(self, carla_world, hud, actor_filter, actor_role_name='hero'):
         self.world = carla_world
@@ -177,6 +177,8 @@ class World(object):
         self.lane_invasion_sensor = None
         self.gnss_sensor = None
         self.camera_manager = None
+        self.camera_manager2 = None
+        self.camera_manager3 = None
         self._weather_presets = find_weather_presets()
         self._weather_index = 0
         self._actor_filter = actor_filter
@@ -190,6 +192,9 @@ class World(object):
         # Keep same camera config if the camera manager exists.
         cam_index = self.camera_manager.index if self.camera_manager is not None else 0
         cam_pos_index = self.camera_manager.transform_index if self.camera_manager is not None else 0
+
+        cam_index2 = 3
+        cam_index3 = 5
         # Get a random blueprint.
         blueprint = random.choice(self.world.get_blueprint_library().filter('vehicle.audi.tt'))
         blueprint.set_attribute('role_name', self.actor_role_name)
@@ -202,7 +207,6 @@ class World(object):
             spawn_point.location.x = -74.4
             spawn_point.location.y = -15.0
             spawn_point.location.z += 2.0
-
             spawn_point.rotation.roll = 0
             spawn_point.rotation.pitch = 0
             spawn_point.rotation.yaw = -90
@@ -220,6 +224,15 @@ class World(object):
         self.camera_manager = CameraManager(self.player, self.hud)
         self.camera_manager.transform_index = cam_pos_index
         self.camera_manager.set_sensor(cam_index, notify=False)
+
+        self.camera_manager2 = CameraManager(self.player, self.hud)
+        self.camera_manager2.transform_index = cam_pos_index
+        self.camera_manager2.set_sensor(cam_index2, notify=False)
+
+        self.camera_manager3 = CameraManager(self.player, self.hud)
+        self.camera_manager3.transform_index = cam_pos_index
+        self.camera_manager3.set_sensor(cam_index3, notify=False)
+
         actor_type = get_actor_display_name(self.player)
         self.hud.notification(actor_type)
 
@@ -235,12 +248,19 @@ class World(object):
 
     def render(self, display):
         self.camera_manager.render(display)
-        # self.hud.render(display)
 
     def destroy_sensors(self):
         self.camera_manager.sensor.destroy()
         self.camera_manager.sensor = None
         self.camera_manager.index = None
+
+        self.camera_manager2.sensor.destroy()
+        self.camera_manager2.sensor = None
+        self.camera_manager2.index = None
+
+        self.camera_manager3.sensor.destroy()
+        self.camera_manager3.sensor = None
+        self.camera_manager3.index = None
 
     def destroy(self):
         actors = [
@@ -292,7 +312,6 @@ class KeyboardControl(object):
                     return True
                 elif event.key == K_BACKSPACE:
                     start = True
-                    world.camera_manager.ridar_sensor_on()
                     world.restart()
                 elif event.key == K_F1:
                     world.hud.toggle_info()
@@ -748,6 +767,7 @@ class CameraManager(object):
     def __init__(self, parent_actor, hud):
         self.sensor = None
         self.surface = None
+
         self._parent = parent_actor
         self.hud = hud
         self.recording = False
@@ -788,6 +808,7 @@ class CameraManager(object):
             if self.sensor is not None:
                 self.sensor.destroy()
                 self.surface = None
+
             self.sensor = self._parent.get_world().spawn_actor(
                 self.sensors[index][-1],
                 self._camera_transforms[self.transform_index],
@@ -796,9 +817,10 @@ class CameraManager(object):
             # circular reference.
             weak_self = weakref.ref(self)
             self.sensor.listen(lambda image: CameraManager._parse_image(weak_self, image))
+            # self.sensor.listen(lambda image2: CameraManager._parse_image(weak_self2, image2))
         if notify:
             self.hud.notification(self.sensors[index][2])
-        self.index = index
+        self.index = index # depth map
 
 
     def next_sensor(self):
@@ -808,27 +830,23 @@ class CameraManager(object):
         self.recording = not self.recording
         self.hud.notification('Recording %s' % ('On' if self.recording else 'Off'))
 
-    def ridar_sensor_on(self):
-        self.sensor = self._parent.get_world().spawn_actor(
-            self.sensors[3][-1],
-            self._camera_transforms[self.transform_index], # self.transform_index
-            attach_to=self._parent)
-        weak_self = weakref.ref(self)
-        self.sensor.listen(lambda image: CameraManager._parse_image(weak_self, image))
-        self.index = 3
-        # x :list = 0 type hint
-        # print("lidar ",carla.LidarMeasurement.channels, carla.LidarMeasurement.get_point_count(carla.LidarMeasurement.channels) )
-
     def render(self, display):
         global scene
+        global scene2
         if self.surface is not None:
             display.blit(self.surface, (0, 0))
             scene = pygame.transform.scale(self.surface, (240, 270))
             scene = pygame.surfarray.array3d(scene)
+            # scene2 = pygame.transform.scale(self.surface2, (240, 270))
+            # scene2 = pygame.surfarray.array3d(scene2)
+
             # print('sys.getsizeof(x): {0} bytes'.format(sys.getsizeof(scene)))
+
+
     @staticmethod
     def _parse_image(weak_self, image):
         global scene
+        global scene2
         self = weak_self()
         if not self:
             return
@@ -851,16 +869,34 @@ class CameraManager(object):
             # scene = pygame.surfarray.array3d(scene)
 
         else:
-            image.convert(self.sensors[self.index][1])
+            image.convert(self.sensors[self.index][1])  # self.index
             array = np.frombuffer(image.raw_data, dtype=np.dtype("uint8"))
             array = np.reshape(array, (image.height, image.width, 4))
             array = array[:, :, :3]
             array = array[:, :, ::-1]
             self.surface = pygame.surfarray.make_surface(array.swapaxes(0, 1))
-        if self.recording:
-            image.save_to_disk('_out/%08d' % image.frame_number)
-
-
+            if self.index == 3:
+                scene = array
+                # print("depth map ", scene)
+            elif self.index == 5:
+                scene2 = array
+                # print("seg map ", scene2)
+            #
+            # image.convert(self.sensors[7][1])  # self.index
+            # array2 = np.frombuffer(image.raw_data, dtype=np.dtype("uint8"))
+            # array2 = np.reshape(array2, (image.height, image.width, 4))
+            # array2 = array2[:, :, :3]
+            # array2 = array2[:, :, ::-1]
+            # scene2 = array2
+            # print("scene2 ", scene2)
+            # self.surface = pygame.surfarray.make_surface(array2.swapaxes(0, 1))
+            # print(self.index)
+            # image.convert(self.sensors[0][1])  # self.index
+            # array3 = np.frombuffer(image.raw_data, dtype=np.dtype("uint8"))
+            # array3 = np.reshape(array3, (image.height, image.width, 4))
+            # array3 = array3[:, :, :3]
+            # array3 = array3[:, :, ::-1]
+            # self.surface = pygame.surfarray.make_surface(array3.swapaxes(0, 1))
 # ==============================================================================
 # -- game_loop() ---------------------------------------------------------------
 # ==============================================================================
