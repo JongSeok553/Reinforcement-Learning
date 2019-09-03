@@ -835,8 +835,8 @@ class CameraManager(object):
         global scene2
         if self.surface is not None:
             display.blit(self.surface, (0, 0))
-            scene = pygame.transform.scale(self.surface, (240, 270))
-            scene = pygame.surfarray.array3d(scene)
+            # scene = pygame.transform.scale(self.surface, (240, 270))
+            # scene = pygame.surfarray.array3d(scene)
             # scene2 = pygame.transform.scale(self.surface2, (240, 270))
             # scene2 = pygame.surfarray.array3d(scene2)
 
@@ -935,6 +935,7 @@ def game_loop(args):
                 world.tick(clock)
                 world.render(display)
                 pygame.display.flip()
+                ddd.replaymemory(0, 0, 0, 0)
             else:
                 train_timestep += clock.tick_busy_loop(60)
                 action = ddd.get_action(scene)
@@ -1012,7 +1013,7 @@ def main():
     argparser.add_argument(
         '--res',
         metavar='WIDTHxHEIGHT',
-        default='640x360',
+        default='480x270',
         help='window resolution (default: 1280*720)') ## 1280*720
     argparser.add_argument(
         '--filter',

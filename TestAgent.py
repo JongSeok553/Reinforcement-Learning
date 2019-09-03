@@ -25,7 +25,7 @@ class TAgent:
         self.epsilon_min = 0.01
         self.batch_size = 32
         self.train_start = 500
-        self.input_shape = (240, 270 ,3)
+        self.input_shape = (270, 480 ,3)
         self.prediction = []
         self.memory = deque(maxlen=1000)    # default 632 byte
         self.model = self.build_model()
@@ -59,7 +59,7 @@ class TAgent:
             return random.randrange(0, 4)
         else:
 
-            state = np.reshape(state,(-1,240,270,3))
+            state = np.reshape(state,(-1,270, 480 ,3))
             self.prediction = self.model.predict(x=state, batch_size=self.batch_size)
             # self.throttle.append((predict[0][0], predict[0][1]))
             # self.steering.append((predict[0][2], predict[0][3]))
@@ -73,7 +73,7 @@ class TAgent:
     #
     def build_model(self):
         model = Sequential()
-        model.add(Conv2D(128, kernel_size=(3, 3), input_shape=(240, 270, 3), activation='relu'))
+        model.add(Conv2D(128, kernel_size=(3, 3), input_shape=(270, 480 ,3), activation='relu'))
         model.add(MaxPooling2D(pool_size=2, strides=2))
         model.add(Conv2D(128, kernel_size=(3, 3), activation='relu'))
         model.add(MaxPooling2D(pool_size=2, strides=2))
@@ -100,8 +100,8 @@ class TAgent:
         if self.epsilon > self.epsilon_min:
             self.epsilon *= self.epsilon_decay
         mini_batch = random.sample(self.memory, self.batch_size)
-        state = np.zeros((self.batch_size, 240, 270, 3))
-        next_state = np.zeros((self.batch_size, 240, 270, 3))
+        state = np.zeros((self.batch_size, 270, 480 ,3))
+        next_state = np.zeros((self.batch_size, 270, 480 ,3))
         target = np.zeros((self.batch_size, 4))
         rewards, action = [], []
         for i in range(self.batch_size):
@@ -115,18 +115,6 @@ class TAgent:
         # print("================================")
         for i in range(self.batch_size):
             target[i][action[i]] = rewards[i] + self.discount_factor * (max(target_value[i]))
-
-        # print(target)
-            # target[i][2 + steering[i]] = rewards[i] + self.discount_factor * (
-            #     max(target_value[0][2], target_value[0][3]))
-            #
-            # target[i][4 + brake[i]] = rewards[i] + self.discount_factor * (
-            #     max(target_value[i][4], target_value[i][5]))
-        # print("target value ", target)
-        # print(self.model.predict(state))
-        # print("========================")
-        # print(target_value)
-        # print("========================")
         # print(target)
         self.model.fit(state, target, batch_size=self.batch_size)
         print("finish train")
