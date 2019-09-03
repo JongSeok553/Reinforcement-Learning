@@ -936,6 +936,8 @@ def game_loop(args):
                 world.render(display)
                 pygame.display.flip()
                 ddd.replaymemory(0, 0, 0, 0)
+
+
             else:
                 train_timestep += clock.tick_busy_loop(60)
                 action = ddd.get_action(scene)
