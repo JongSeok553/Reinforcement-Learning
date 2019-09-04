@@ -147,8 +147,8 @@ episode = 1
 steering = 0
 accel = 0
 brake = 0
-scene = np.zeros((240, 270,3))
-scene2 = np.zeros((240, 270,3))
+scene = np.zeros((270, 480,3))
+scene2 = np.zeros((270, 480,3))
 next_scene = 0
 pre_scene = 0
 scene_row = 0
@@ -265,6 +265,8 @@ class World(object):
     def destroy(self):
         actors = [
             self.camera_manager.sensor,
+            self.camera_manager2.sensor,
+            self.camera_manager3.sensor,
             self.collision_sensor.sensor,
             self.lane_invasion_sensor.sensor,
             self.gnss_sensor.sensor,
@@ -863,10 +865,6 @@ class CameraManager(object):
             lidar_img = np.zeros(lidar_img_size)
             lidar_img[tuple(lidar_data.T)] = (255, 255, 255)
             self.surface = pygame.surfarray.make_surface(lidar_img)
-            # scene = pygame.transform.scale(self.surface, (240, 270))
-            # lidar_img = np.resize(lidar_img, (240, 270, 3))
-            # scene = lidar_img
-            # scene = pygame.surfarray.array3d(scene)
 
         else:
             image.convert(self.sensors[self.index][1])  # self.index
@@ -875,32 +873,25 @@ class CameraManager(object):
             array = array[:, :, :3]
             array = array[:, :, ::-1]
             self.surface = pygame.surfarray.make_surface(array.swapaxes(0, 1))
-            if self.index == 3:
+            if self.index == 3:         ## depth map
                 scene = array
-                # print("depth map ", scene)
-            elif self.index == 5:
-                scene2 = array
-                # print("seg map ", scene2)
-            #
-            # image.convert(self.sensors[7][1])  # self.index
-            # array2 = np.frombuffer(image.raw_data, dtype=np.dtype("uint8"))
-            # array2 = np.reshape(array2, (image.height, image.width, 4))
-            # array2 = array2[:, :, :3]
-            # array2 = array2[:, :, ::-1]
-            # scene2 = array2
-            # print("scene2 ", scene2)
-            # self.surface = pygame.surfarray.make_surface(array2.swapaxes(0, 1))
-            # print(self.index)
-            # image.convert(self.sensors[0][1])  # self.index
-            # array3 = np.frombuffer(image.raw_data, dtype=np.dtype("uint8"))
-            # array3 = np.reshape(array3, (image.height, image.width, 4))
-            # array3 = array3[:, :, :3]
-            # array3 = array3[:, :, ::-1]
-            # self.surface = pygame.surfarray.make_surface(array3.swapaxes(0, 1))
+            elif self.index == 5:       ## segmentation
+                # scene2 = array
+                for i in range(image.height):
+                    for j in range(image.width):
+                        if array[i][j][0] == (157 or 128 or 244):
+                            scene2[i][j][0] = 1
+                            scene2[i][j][1] = 1
+                            scene2[i][j][2] = 1
+                        else:
+                            scene2[i][j][0] = 0
+                            scene2[i][j][1] = 0
+                            scene2[i][j][2] = 0
+
+
 # ==============================================================================
 # -- game_loop() ---------------------------------------------------------------
 # ==============================================================================
-
 
 def game_loop(args):
     pygame.init()
@@ -909,6 +900,7 @@ def game_loop(args):
     global pre_scene
     global reward
     global scene
+    global scene2
     world = None
     ddd = TAgent()
     train_timestep = 0
@@ -929,7 +921,7 @@ def game_loop(args):
         clock = pygame.time.Clock()
         while True:
             if not start:
-                clock.tick_busy_loop(60)
+                clock.tick_busy_loop(40)
                 if controller.parse_events(client, world, clock):
                     return
                 world.tick(clock)
@@ -939,7 +931,7 @@ def game_loop(args):
 
 
             else:
-                train_timestep += clock.tick_busy_loop(60)
+                train_timestep += clock.tick_busy_loop(40)
                 action = ddd.get_action(scene)
                 pre_scene = scene
                 controller.do_action(world, clock.get_time(), action)
