@@ -73,12 +73,14 @@ class TAgent:
     #
     def build_model(self):
         model = Sequential()
-        model.add(Conv2D(128, kernel_size=(3, 3), input_shape=(270, 480 ,3), activation='relu'))
+        model.add(Conv2D(256, kernel_size=(3, 3), input_shape=(270, 480 ,3), activation='relu'))
         model.add(MaxPooling2D(pool_size=2, strides=2))
+        model.add(Conv2D(256, kernel_size=(3, 3), activation='relu'))
         model.add(Conv2D(128, kernel_size=(3, 3), activation='relu'))
-        model.add(MaxPooling2D(pool_size=2, strides=2))
+        model.add(Conv2D(128, kernel_size=(3, 3), activation='relu'))
+        # model.add(MaxPooling2D(pool_size=2, strides=2))
         model.add(Conv2D(64, kernel_size=(3, 3), activation='relu'))
-        model.add(MaxPooling2D(pool_size=2, strides=2))
+        # model.add(MaxPooling2D(pool_size=2, strides=2))
         model.add(Conv2D(64, kernel_size=(1, 1), activation='relu'))
         model.add(MaxPooling2D(pool_size=2, strides=2))
         model.add(Conv2D(32, kernel_size=(1, 1), activation='relu'))
@@ -105,10 +107,10 @@ class TAgent:
         target = np.zeros((self.batch_size, 4))
         rewards, action = [], []
         for i in range(self.batch_size):
-            state[i] = np.float32(mini_batch[i][0])/255.0
+            state[i] = np.float32(mini_batch[i][0])
             action.append(mini_batch[i][1])
             rewards.append(mini_batch[i][2])
-            next_state[i] = np.float32(mini_batch[i][3])/255.0
+            next_state[i] = np.float32(mini_batch[i][3])
 
         target_value = self.target_model.predict(x=next_state,batch_size=self.batch_size)
 

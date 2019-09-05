@@ -193,8 +193,8 @@ class World(object):
         cam_index = self.camera_manager.index if self.camera_manager is not None else 0
         cam_pos_index = self.camera_manager.transform_index if self.camera_manager is not None else 0
 
-        cam_index2 = 3
-        cam_index3 = 5
+        # cam_index2 = 3
+        # cam_index3 = 5
         # Get a random blueprint.
         blueprint = random.choice(self.world.get_blueprint_library().filter('vehicle.audi.tt'))
         blueprint.set_attribute('role_name', self.actor_role_name)
@@ -223,15 +223,15 @@ class World(object):
         self.gnss_sensor = GnssSensor(self.player)
         self.camera_manager = CameraManager(self.player, self.hud)
         self.camera_manager.transform_index = cam_pos_index
-        self.camera_manager.set_sensor(cam_index, notify=False)
+        self.camera_manager.set_sensor(5, notify=False)
+        #
+        # self.camera_manager2 = CameraManager(self.player, self.hud)
+        # self.camera_manager2.transform_index = cam_pos_index
+        # self.camera_manager2.set_sensor(cam_index2, notify=False)
 
-        self.camera_manager2 = CameraManager(self.player, self.hud)
-        self.camera_manager2.transform_index = cam_pos_index
-        self.camera_manager2.set_sensor(cam_index2, notify=False)
-
-        self.camera_manager3 = CameraManager(self.player, self.hud)
-        self.camera_manager3.transform_index = cam_pos_index
-        self.camera_manager3.set_sensor(cam_index3, notify=False)
+        # self.camera_manager3 = CameraManager(self.player, self.hud)
+        # self.camera_manager3.transform_index = cam_pos_index
+        # self.camera_manager3.set_sensor(cam_index3, notify=False)
 
         actor_type = get_actor_display_name(self.player)
         self.hud.notification(actor_type)
@@ -254,19 +254,19 @@ class World(object):
         self.camera_manager.sensor = None
         self.camera_manager.index = None
 
-        self.camera_manager2.sensor.destroy()
-        self.camera_manager2.sensor = None
-        self.camera_manager2.index = None
+        # self.camera_manager2.sensor.destroy()
+        # self.camera_manager2.sensor = None
+        # self.camera_manager2.index = None
 
-        self.camera_manager3.sensor.destroy()
-        self.camera_manager3.sensor = None
-        self.camera_manager3.index = None
+        # self.camera_manager3.sensor.destroy()
+        # self.camera_manager3.sensor = None
+        # self.camera_manager3.index = None
 
     def destroy(self):
         actors = [
             self.camera_manager.sensor,
-            self.camera_manager2.sensor,
-            self.camera_manager3.sensor,
+            # self.camera_manager2.sensor,
+            # self.camera_manager3.sensor,
             self.collision_sensor.sensor,
             self.lane_invasion_sensor.sensor,
             self.gnss_sensor.sensor,
@@ -313,6 +313,7 @@ class KeyboardControl(object):
                 if self._is_quit_shortcut(event.key):
                     return True
                 elif event.key == K_BACKSPACE:
+                    world.camera_manager.toggle_camera()
                     start = True
                     world.restart()
                 elif event.key == K_F1:
@@ -501,15 +502,15 @@ class HUD(object):
         vehicles = world.world.get_actors().filter('vehicle.*')
         # print((3.6 * math.sqrt(v.x**2 + v.y**2 + v.z**2))/50.)
         if (3.6 * math.sqrt(v.x**2 + v.y**2 + v.z**2)) < 0.0005:
-            reward = reward -1
+            reward = reward -0.001
         elif (3.6 * math.sqrt(v.x**2 + v.y**2 + v.z**2)) != 0:
             reward = reward + ((3.6 * math.sqrt(v.x**2 + v.y**2 + v.z**2))/1000)
             # print("velocity ", (3.6 * math.sqrt(v.x**2 + v.y**2 + v.z**2)), reward)
 
         if colhist[self.frame_number] > 10:
-            reward = reward - 1
+            reward = reward - (((3.6 * math.sqrt(v.x**2 + v.y**2 + v.z**2))/500) + 1)
             end_episode = True
-        elif len(lane) == 11 or len(lane) > 13:
+        if len(lane) == 11 or len(lane) > 13:
             reward = reward - 1
             end_episode = True
 
@@ -873,20 +874,20 @@ class CameraManager(object):
             array = array[:, :, :3]
             array = array[:, :, ::-1]
             self.surface = pygame.surfarray.make_surface(array.swapaxes(0, 1))
-            if self.index == 3:         ## depth map
-                scene = array
-            elif self.index == 5:       ## segmentation
-                # scene2 = array
-                for i in range(image.height):
-                    for j in range(image.width):
-                        if array[i][j][0] == (157 or 128 or 244):
-                            scene2[i][j][0] = 1
-                            scene2[i][j][1] = 1
-                            scene2[i][j][2] = 1
-                        else:
-                            scene2[i][j][0] = 0
-                            scene2[i][j][1] = 0
-                            scene2[i][j][2] = 0
+            # if self.index == 3:         ## depth map
+            #     scene = array / 255.0
+            # if self.index == 5:       ## segmentation
+            #     scene2 = array /255.0
+                # for i in range(image.height):
+                #     for j in range(image.width):
+                #         if array[i][j][0] == (157 or 128 or 244):
+                #             scene2[i][j][0] = 1
+                #             scene2[i][j][1] = 1
+                #             scene2[i][j][2] = 1
+                #         else:
+                #             scene2[i][j][0] = 0
+                #             scene2[i][j][1] = 0
+                #             scene2[i][j][2] = 0
 
 
 # ==============================================================================
@@ -932,14 +933,14 @@ def game_loop(args):
 
             else:
                 train_timestep += clock.tick_busy_loop(40)
-                action = ddd.get_action(scene)
-                pre_scene = scene
+                action = ddd.get_action(scene2)
+                pre_scene = scene2
                 controller.do_action(world, clock.get_time(), action)
 
                 world.tick(clock)
                 world.render(display)
                 pygame.display.flip()
-                next_scene = scene
+                next_scene = scene2
                 score += reward
                 ddd.replaymemory(pre_scene, action, reward, next_scene)
                 if train_timestep > 3000:
@@ -951,7 +952,7 @@ def game_loop(args):
                 if end_episode:
                     ddd.update_target_model()
                     print("episode ", episode, "score ", score, "epsilon ", ddd.epsilon)
-                    if episode > 1000:  # np.mean(score[-min(10, len(score)):]) > 5:
+                    if episode > 2000:  # np.mean(score[-min(10, len(score)):]) > 5:
                         # if episode > 200:
                         ddd.model.save_weights("model_save/1_model.h5")
                         print("weight file save")

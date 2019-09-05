@@ -11,7 +11,7 @@
 import glob
 import os
 import sys
-
+import pygame
 try:
     sys.path.append(glob.glob('../carla/dist/carla-*%d.%d-%s.egg' % (
         sys.version_info.major,
@@ -66,7 +66,8 @@ def main():
     client.set_timeout(2.0)
 
     try:
-
+        train_timestep = 0
+        clock = pygame.time.Clock()
         world = client.get_world()
         blueprints = world.get_blueprint_library().filter('vehicle.*')
 
@@ -110,6 +111,9 @@ def main():
         print('spawned %d vehicles, press Ctrl+C to exit.' % len(actor_list))
 
         while True:
+            train_timestep += clock.tick_busy_loop(60)
+            if train_timestep > 300000:
+                break
             world.wait_for_tick()
 
     finally:
