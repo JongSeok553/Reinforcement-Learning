@@ -1,5 +1,5 @@
 from keras.models import Sequential
-from keras.layers import Conv2D, Dense, Dropout, Activation, Flatten, MaxPooling2D, BatchNormalization
+from keras.layers import Conv2D, Dense, Dropout, Activation, Flatten, MaxPooling2D
 from keras.optimizers import Adam
 from keras.utils import np_utils
 from keras.models import load_model, model_from_json
@@ -69,7 +69,6 @@ class TAgent:
             # print(self.throttle[0], self.steering[0], self.brake[0])
             # print(np.argmax(self.throttle[0]), np.argmax(self.steering[0]), np.argmax(self.brake[0]))
             # return np.argmax(self.throttle[0]), np.argmax(self.steering[0]), np.argmax(self.brake[0])
-            # print("action ",self.prediction[0])
             return np.argmax(self.prediction[0])
     #
     def build_model(self):
@@ -139,4 +138,20 @@ class TAgent:
     def update_target_model(self):
         self.target_model.set_weights(self.model.get_weights())
         print("update target model !!")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 

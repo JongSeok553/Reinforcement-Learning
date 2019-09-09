@@ -51,6 +51,7 @@ from __future__ import print_function
 import glob
 import os
 import sys
+# import cv2
 
 try:
     sys.path.append(glob.glob('../carla/dist/carla-*%d.%d-%s.egg' % (
@@ -970,7 +971,7 @@ def game_loop(args):
                 if end_episode:
                     ddd.update_target_model()
                     print("episode ", episode, "score ", score, "epsilon ", ddd.epsilon)
-                    if episode > 2000:  # np.mean(score[-min(10, len(score)):]) > 5:
+                    if episode > 10000:  # np.mean(score[-min(10, len(score)):]) > 5:
                         # if episode > 200:
                         ddd.model.save_weights("model_save/1_model.h5")
                         print("weight file save")
