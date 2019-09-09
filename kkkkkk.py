@@ -79,8 +79,6 @@ import random
 import re
 import weakref
 import sys
-import time
-
 
 try:
     import pygame
@@ -147,8 +145,8 @@ episode = 1
 steering = 0
 accel = 0
 brake = 0
-scene = np.zeros((270, 480,3))
-scene2 = np.zeros((270, 480,3))
+scene = np.zeros((90, 180, 3))
+scene2 = np.zeros((90, 180, 3))
 next_scene = 0
 pre_scene = 0
 scene_row = 0
@@ -393,7 +391,6 @@ class KeyboardControl(object):
 
     def do_action(self, world, milliseconds, action):
         global reward
-        # self._control.throttle = 1.0
         if action == 0:
             self._control.throttle = 1.0
         else:
@@ -500,19 +497,30 @@ class HUD(object):
         max_col = max(1.0, max(collision))
         collision = [x / max_col for x in collision]
         vehicles = world.world.get_actors().filter('vehicle.*')
-        # print((3.6 * math.sqrt(v.x**2 + v.y**2 + v.z**2))/50.)
-        if (3.6 * math.sqrt(v.x**2 + v.y**2 + v.z**2)) < 0.0005:
-            reward = reward -0.001
-        elif (3.6 * math.sqrt(v.x**2 + v.y**2 + v.z**2)) != 0:
-            reward = reward + ((3.6 * math.sqrt(v.x**2 + v.y**2 + v.z**2))/1000)
-            # print("velocity ", (3.6 * math.sqrt(v.x**2 + v.y**2 + v.z**2)), reward)
+        speed = 3.6 * math.sqrt(v.x ** 2 + v.y ** 2 + v.z ** 2)
 
-        if colhist[self.frame_number] > 10:
-            reward = reward - (((3.6 * math.sqrt(v.x**2 + v.y**2 + v.z**2))/500) + 1)
+        # print((3.6 * math.sqrt(v.x**2 + v.y**2 + v.z**2))/50.)
+        if speed < 0.1:
+            reward = reward - 0.01
+        elif speed > 30:
+            reward = reward + speed/100
+        else:
+            reward = reward + speed / 1000
+
+        if colhist[self.frame_number] > 0:
+            reward = reward - ((speed / 100) + 1)
             end_episode = True
-        if len(lane) == 11 or len(lane) > 13:
+            print("return")
+            return
+        elif colhist[self.frame_number] == 0 and speed > 30:
+            reward = reward + 0.01
+
+        if (len(lane) == 11 or len(lane) > 13):
             reward = reward - 1
             end_episode = True
+            print("return")
+            return
+
 
         self._info_text = [
             'Server:  % 16.0f FPS' % self.server_fps,
@@ -547,15 +555,17 @@ class HUD(object):
             collision,
             '',
             'Number of vehicles: % 8d' % len(vehicles)]
-        if len(vehicles) > 1:
-            self._info_text += ['Nearby vehicles:']
-            distance = lambda l: math.sqrt((l.x - t.location.x)**2 + (l.y - t.location.y)**2 + (l.z - t.location.z)**2)
-            vehicles = [(distance(x.get_location()), x) for x in vehicles if x.id != world.player.id]
-            for d, vehicle in sorted(vehicles):
-                if d > 200.0:
-                    break
-                vehicle_type = get_actor_display_name(vehicle, truncate=22)
-                self._info_text.append('% 4dm %s' % (d, vehicle_type))
+        # if len(vehicles) > 1:
+        #     self._info_text += ['Nearby vehicles:']
+        #     distance = lambda l: math.sqrt((l.x - t.location.x)**2 + (l.y - t.location.y)**2 + (l.z - t.location.z)**2)
+        #     vehicles = [(distance(x.get_location()), x) for x in vehicles if x.id != world.player.id]
+        #     for d, vehicle in sorted(vehicles):
+        #         if d > 200.0:
+        #             break
+        #         vehicle_type = get_actor_display_name(vehicle, truncate=22)
+        #         self._info_text.append('% 4dm %s' % (d, vehicle_type))
+        # else:
+        #     pass
 
     def toggle_info(self):
         self._show_info = not self._show_info
@@ -732,7 +742,16 @@ class LaneInvasionSensor(object):
         text = ['%r' % str(x).split()[-1] for x in lane_types]
         self.hud.notification('Crossed line %s' % ' and '.join(text))
         self.type_lane = text
-
+        # if self.type_lane.startswith('Broken'):
+        #     print("broken")
+        # elif self.type_lane.startswith('Solid'):
+        #     print("Solid")
+        # elif self.type_lane.startswith('BrokenSolid'):
+        #     print("BrokenSolid")
+        # elif self.type_lane.startswith('SolidBroken'):
+        #     print("SolidBroken")
+        # else:
+        #     print("good")
 # ==============================================================================
 # -- GnssSensor --------------------------------------------------------
 # ==============================================================================
@@ -820,7 +839,6 @@ class CameraManager(object):
             # circular reference.
             weak_self = weakref.ref(self)
             self.sensor.listen(lambda image: CameraManager._parse_image(weak_self, image))
-            # self.sensor.listen(lambda image2: CameraManager._parse_image(weak_self2, image2))
         if notify:
             self.hud.notification(self.sensors[index][2])
         self.index = index # depth map
@@ -838,8 +856,8 @@ class CameraManager(object):
         global scene2
         if self.surface is not None:
             display.blit(self.surface, (0, 0))
-            # scene = pygame.transform.scale(self.surface, (240, 270))
-            # scene = pygame.surfarray.array3d(scene)
+            scene = pygame.transform.scale(self.surface, (90, 180))
+            scene = pygame.surfarray.array3d(scene)
             # scene2 = pygame.transform.scale(self.surface2, (240, 270))
             # scene2 = pygame.surfarray.array3d(scene2)
 
@@ -932,15 +950,15 @@ def game_loop(args):
 
 
             else:
-                train_timestep += clock.tick_busy_loop(40)
-                action = ddd.get_action(scene2)
-                pre_scene = scene2
+                train_timestep += clock.tick_busy_loop(60)
+                action = ddd.get_action(scene)
+                pre_scene = scene
                 controller.do_action(world, clock.get_time(), action)
 
                 world.tick(clock)
                 world.render(display)
                 pygame.display.flip()
-                next_scene = scene2
+                next_scene = scene
                 score += reward
                 ddd.replaymemory(pre_scene, action, reward, next_scene)
                 if train_timestep > 3000:
@@ -1008,7 +1026,7 @@ def main():
     argparser.add_argument(
         '--res',
         metavar='WIDTHxHEIGHT',
-        default='480x270',
+        default='360x180',
         help='window resolution (default: 1280*720)') ## 1280*720
     argparser.add_argument(
         '--filter',

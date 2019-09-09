@@ -113,13 +113,14 @@ def main():
         while True:
             train_timestep += clock.tick_busy_loop(60)
             if train_timestep > 300000:
+                client.apply_batch([carla.command.DestroyActor(x) for x in actor_list])
                 break
             world.wait_for_tick()
 
     finally:
 
         print('\ndestroying %d actors' % len(actor_list))
-        client.apply_batch([carla.command.DestroyActor(x) for x in actor_list])
+        # client.apply_batch([carla.command.DestroyActor(x) for x in actor_list])
 
 
 if __name__ == '__main__':
