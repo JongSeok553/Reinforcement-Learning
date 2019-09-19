@@ -51,6 +51,7 @@ from __future__ import print_function
 import glob
 import os
 import sys
+# import cv2
 
 try:
     sys.path.append(glob.glob('../carla/dist/carla-*%d.%d-%s.egg' % (
@@ -79,7 +80,7 @@ import random
 import re
 import weakref
 import sys
-
+import cv2
 try:
     import pygame
     from pygame.locals import KMOD_CTRL
@@ -145,8 +146,8 @@ episode = 1
 steering = 0
 accel = 0
 brake = 0
-scene = np.zeros((90, 180, 3))
-scene2 = np.zeros((90, 180, 3))
+scene = np.zeros((480, 270, 3))
+scene2 = np.zeros((480, 270, 3))
 next_scene = 0
 pre_scene = 0
 scene_row = 0
@@ -202,8 +203,11 @@ class World(object):
         # Spawn the player.
         if self.player is not None:
             spawn_point = self.player.get_transform()
-            spawn_point.location.x = -74.4
-            spawn_point.location.y = -15.0
+            # spawn_point.location.x = -74.4
+            # spawn_point.location.y = -15.0
+            # spawn_point.location.z += 2.0
+            spawn_point.location.x = -58.4
+            spawn_point.location.y = -23.0
             spawn_point.location.z += 2.0
             spawn_point.rotation.roll = 0
             spawn_point.rotation.pitch = 0
@@ -221,7 +225,7 @@ class World(object):
         self.gnss_sensor = GnssSensor(self.player)
         self.camera_manager = CameraManager(self.player, self.hud)
         self.camera_manager.transform_index = cam_pos_index
-        self.camera_manager.set_sensor(5, notify=False)
+        self.camera_manager.set_sensor(cam_index, notify=False)
         #
         # self.camera_manager2 = CameraManager(self.player, self.hud)
         # self.camera_manager2.transform_index = cam_pos_index
@@ -389,25 +393,28 @@ class KeyboardControl(object):
         #         self._parse_walker_keys(pygame.key.get_pressed(), clock.get_time())
         #     world.player.apply_control(self._control)
 
-    def do_action(self, world, milliseconds, action):
+    def do_action(self, world, milliseconds, action1, action2):
         global reward
-        if action == 0:
+        if action1 == 0 or action2 == 0:
             self._control.throttle = 1.0
         else:
             self._control.throttle = 0
 
-        steer_increment = 10e-3 * milliseconds   #5e-4
-        if action == 1:
+        steer_increment = 5e-4 * milliseconds   #5e-4
+        if action1 == 1 or action2 == 1:
             self._steer_cache = self._steer_cache - steer_increment
-        elif action == 2:
+        elif action1 == 2 or action2 == 2:
             self._steer_cache = self._steer_cache + steer_increment
         else:
             self._steer_cache = 0
 
-        if action == 3:
+        if action1 == 3 or action2 == 3:
             self._control.brake = 1
         else :
             self._control.brake = 0
+
+        if action1 == 4 or action2 == 4:
+            pass
 
         self._steer_cache = min(0.7, max(-0.7, self._steer_cache))
         self._control.steer = round(self._steer_cache, 1)
@@ -500,27 +507,20 @@ class HUD(object):
         speed = 3.6 * math.sqrt(v.x ** 2 + v.y ** 2 + v.z ** 2)
 
         # print((3.6 * math.sqrt(v.x**2 + v.y**2 + v.z**2))/50.)
-        if speed < 0.1:
-            reward = reward - 0.01
-        elif speed > 30:
-            reward = reward + speed/100
-        else:
-            reward = reward + speed / 1000
+        if speed < 1:
+            reward = reward - 0.001
 
         if colhist[self.frame_number] > 0:
-            reward = reward - ((speed / 100) + 1)
+            reward = reward - 1
             end_episode = True
-            print("return")
             return
-        elif colhist[self.frame_number] == 0 and speed > 30:
-            reward = reward + 0.01
 
         if (len(lane) == 11 or len(lane) > 13):
             reward = reward - 1
             end_episode = True
-            print("return")
             return
-
+        # elif speed > 10 and len(lane) < 10:
+        #     reward = reward + 0.01
 
         self._info_text = [
             'Server:  % 16.0f FPS' % self.server_fps,
@@ -855,14 +855,9 @@ class CameraManager(object):
         global scene
         global scene2
         if self.surface is not None:
-            display.blit(self.surface, (0, 0))
-            scene = pygame.transform.scale(self.surface, (90, 180))
-            scene = pygame.surfarray.array3d(scene)
-            # scene2 = pygame.transform.scale(self.surface2, (240, 270))
-            # scene2 = pygame.surfarray.array3d(scene2)
-
-            # print('sys.getsizeof(x): {0} bytes'.format(sys.getsizeof(scene)))
-
+            display.blit(self.surface, (0, 0)) # x,y
+            # scene = pygame.transform.scale(self.surface, (280, 200))
+            # scene = pygame.surfarray.array3d(scene)
 
     @staticmethod
     def _parse_image(weak_self, image):
@@ -891,21 +886,11 @@ class CameraManager(object):
             array = np.reshape(array, (image.height, image.width, 4))
             array = array[:, :, :3]
             array = array[:, :, ::-1]
+            array2 = array[350:600, 100:700, ::-1] # y , x 2.4 :1 -> 1/6 축소 (42*100)
+            crop_image = cv2.resize(array2,dsize=(100,42),interpolation = cv2.INTER_AREA)
+            scene = crop_image
             self.surface = pygame.surfarray.make_surface(array.swapaxes(0, 1))
-            # if self.index == 3:         ## depth map
-            #     scene = array / 255.0
-            # if self.index == 5:       ## segmentation
-            #     scene2 = array /255.0
-                # for i in range(image.height):
-                #     for j in range(image.width):
-                #         if array[i][j][0] == (157 or 128 or 244):
-                #             scene2[i][j][0] = 1
-                #             scene2[i][j][1] = 1
-                #             scene2[i][j][2] = 1
-                #         else:
-                #             scene2[i][j][0] = 0
-                #             scene2[i][j][1] = 0
-                #             scene2[i][j][2] = 0
+
 
 
 # ==============================================================================
@@ -920,10 +905,12 @@ def game_loop(args):
     global reward
     global scene
     global scene2
+    global end_episode
     world = None
     ddd = TAgent()
     train_timestep = 0
     score = 0
+    end_score = 0
 
     try:
         client = carla.Client(args.host, args.port)
@@ -946,33 +933,38 @@ def game_loop(args):
                 world.tick(clock)
                 world.render(display)
                 pygame.display.flip()
-                ddd.replaymemory(0, 0, 0, 0)
+                ddd.replaymemory(0, 0, 0, 0, 0)
 
 
             else:
                 train_timestep += clock.tick_busy_loop(60)
-                action = ddd.get_action(scene)
+                action1, action2 = ddd.get_action(scene)
                 pre_scene = scene
-                controller.do_action(world, clock.get_time(), action)
-
+                controller.do_action(world, clock.get_time(), action1, action2)
                 world.tick(clock)
                 world.render(display)
                 pygame.display.flip()
                 next_scene = scene
                 score += reward
-                ddd.replaymemory(pre_scene, action, reward, next_scene)
+                ddd.replaymemory(pre_scene, action1,action2, reward, next_scene)
                 if train_timestep > 3000:
                     ddd.model_train()
                     train_timestep = 0
                     print("score ", score)
+                    end_score += score
+                    if end_score < -160:
+                        end_episode = True
+                        print("minus score , update target model")
+                        end_score = 0
                     score = 0
                 reward = 0
                 if end_episode:
                     ddd.update_target_model()
                     print("episode ", episode, "score ", score, "epsilon ", ddd.epsilon)
-                    if episode > 2000:  # np.mean(score[-min(10, len(score)):]) > 5:
+                    end_score = 0
+                    if episode > 50000:  # np.mean(score[-min(10, len(score)):]) > 5:
                         # if episode > 200:
-                        ddd.model.save_weights("model_save/1_model.h5")
+                        ddd.model.save_weights("model_save/dddddd.h5")
                         print("weight file save")
                         sys.exit()
                     score = 0
@@ -990,7 +982,7 @@ def game_loop(args):
         if world is not None:
 
             world.destroy()
-        ddd.model.save_weights("model_save/1_model.h5")
+        ddd.model.save_weights("model_save/2019_09_10_21.h5")
         print("model save~~")
         pygame.quit()
 
@@ -1026,7 +1018,7 @@ def main():
     argparser.add_argument(
         '--res',
         metavar='WIDTHxHEIGHT',
-        default='360x180',
+        default='800x600',
         help='window resolution (default: 1280*720)') ## 1280*720
     argparser.add_argument(
         '--filter',
