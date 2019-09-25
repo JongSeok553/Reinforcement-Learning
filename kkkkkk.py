@@ -146,8 +146,8 @@ episode = 1
 steering = 0
 accel = 0
 brake = 0
-scene = np.zeros((480, 270, 3))
-scene2 = np.zeros((480, 270, 3))
+scene = np.zeros((50, 80, 1))
+scene2 = np.zeros((50, 80, 1))
 next_scene = 0
 pre_scene = 0
 scene_row = 0
@@ -507,16 +507,17 @@ class HUD(object):
         speed = 3.6 * math.sqrt(v.x ** 2 + v.y ** 2 + v.z ** 2)
 
         # print((3.6 * math.sqrt(v.x**2 + v.y**2 + v.z**2))/50.)
-        if speed < 1:
+        if speed < 2:
             reward = reward - 0.001
-
+        else:
+            reward = reward + 0.001
         if colhist[self.frame_number] > 0:
-            reward = reward - 1
+            reward = reward - (1 + speed/100)
             end_episode = True
             return
 
         if (len(lane) == 11 or len(lane) > 13):
-            reward = reward - 1
+            reward = reward - (1 + speed/100)
             end_episode = True
             return
         # elif speed > 10 and len(lane) < 10:
@@ -884,10 +885,13 @@ class CameraManager(object):
             image.convert(self.sensors[self.index][1])  # self.index
             array = np.frombuffer(image.raw_data, dtype=np.dtype("uint8"))
             array = np.reshape(array, (image.height, image.width, 4))
-            array = array[:, :, :3]
-            array = array[:, :, ::-1]
-            array2 = array[350:600, 100:700, ::-1] # y , x 2.4 :1 -> 1/6 축소 (42*100)
-            crop_image = cv2.resize(array2,dsize=(100,42),interpolation = cv2.INTER_AREA)
+            array = array[300:550, 200:600, :3]
+            array2 = cv2.cvtColor(array, cv2.COLOR_RGB2GRAY)
+            canny = cv2.Canny(array2, 100,200)
+            # array = array[:, :, ::-1]
+            # array2 = array[300:550, 200:600, ::-1] # y , x 2.4 :1 -> 1/6 축소 (42*100)
+            crop_image = cv2.resize(canny,dsize=(80,50),interpolation = cv2.INTER_AREA)
+            crop_image = np.reshape(crop_image, (50,80,1))
             scene = crop_image
             self.surface = pygame.surfarray.make_surface(array.swapaxes(0, 1))
 
@@ -952,9 +956,13 @@ def game_loop(args):
                     train_timestep = 0
                     print("score ", score)
                     end_score += score
-                    if end_score < -160:
+                    if end_score < -5:
                         end_episode = True
-                        print("minus score , update target model")
+                        print("minus score !!!!!, update target model")
+                        end_score = 0
+                    elif end_score > 5:
+                        end_episode = True
+                        print("plus score !!!!!, update target model")
                         end_score = 0
                     score = 0
                 reward = 0
@@ -964,7 +972,7 @@ def game_loop(args):
                     end_score = 0
                     if episode > 50000:  # np.mean(score[-min(10, len(score)):]) > 5:
                         # if episode > 200:
-                        ddd.model.save_weights("model_save/dddddd.h5")
+                        ddd.model.save_weights("model_save/2019_09_20_15.h5")
                         print("weight file save")
                         sys.exit()
                     score = 0
@@ -982,7 +990,7 @@ def game_loop(args):
         if world is not None:
 
             world.destroy()
-        ddd.model.save_weights("model_save/2019_09_10_21.h5")
+        ddd.model.save_weights("model_save/2019_09_20_15.h5")
         print("model save~~")
         pygame.quit()
 

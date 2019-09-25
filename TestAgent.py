@@ -28,7 +28,7 @@ class TAgent:
         self.epsilon_min = 0.01
         self.batch_size = 32
         self.train_start = 500
-        self.input_shape = (280, 200, 3)
+        self.input_shape = (50, 80, 1)
         self.prediction = []
         self.memory = deque(maxlen=1000)    # default 632 byte
         self.model = self.build_model()
@@ -58,47 +58,42 @@ class TAgent:
         if np.random.rand() <= self.epsilon:
             return random.randrange(0, 5), random.randrange(0, 5)
         else:
-            state = np.reshape(state,(-1, 280, 200, 3))
+            state = np.reshape(state,(-1, 50, 80, 1))
             state = state / 255.0
             self.prediction = self.model.predict(x=state)
             # print("prediction", self.prediction)
             self.prediction = self.prediction.argsort()
             # print("prediction", self.prediction, self.prediction[0][3], self.prediction[0][2] )
             # print("prediction", self.prediction, self.prediction[0][4], self.prediction[0][3])
+            # print("prediction", self.prediction)
             return self.prediction[0][4], self.prediction[0][3]
     #
     def build_model(self):
         model = Sequential()
-        model.add(Conv2D(128, kernel_size=(3, 3), input_shape=(280, 200, 3), activation='relu'))
-        model.add(BatchNormalization())
-        model.add(MaxPooling2D(pool_size=2, strides=2))
+        model.add(Conv2D(32, kernel_size=(6, 6),strides=(3, 3), input_shape=(50, 80, 1), activation='relu'))
+        # model.add(BatchNormalization())
 
-        model.add(Conv2D(128, kernel_size=(3, 3), activation='relu'))
-        model.add(BatchNormalization())
-        model.add(MaxPooling2D(pool_size=2, strides=2))
+        model.add(Conv2D(64, kernel_size=(4, 4), strides=(2, 2), activation='relu'))
+        # model.add(BatchNormalization())
 
-        model.add(Conv2D(64, kernel_size=(3, 3), activation='relu'))
-        model.add(BatchNormalization())
+        model.add(Conv2D(64, kernel_size=(3, 3), strides=(1, 1),activation='relu'))
+        # model.add(BatchNormalization())
 
-        model.add(Conv2D(64, kernel_size=(3, 3), activation='relu'))
-        model.add(BatchNormalization())
-        model.add(MaxPooling2D(pool_size=2, strides=2))
-
-        model.add(Conv2D(32, kernel_size=(3, 3), activation='relu'))
-        model.add(BatchNormalization())
-        model.add(MaxPooling2D(pool_size=2, strides=2))
-
-        model.add(Conv2D(32, kernel_size=(3, 3), activation='relu'))
-        model.add(BatchNormalization())
-        model.add(MaxPooling2D(pool_size=2, strides=2))
-
-        model.add(Conv2D(32, kernel_size=(3, 3), activation='relu'))
-        model.add(BatchNormalization())
-        model.add(Flatten())                # 11264
-        model.add(Dense(64, activation='relu'))
-        model.add(BatchNormalization())
+        model.add(Flatten())  # 11264
+        # model.add(BatchNormalization())
+        model.add(Dense(512, activation='relu'))
 
         model.add(Dense(5, activation='sigmoid'))
+
+
+
+        # model.add(Conv2D(32, kernel_size=(3, 3), activation='relu'))
+        # model.add(BatchNormalization())
+        # model.add(Flatten())                # 11264
+        # model.add(Dense(64, activation='relu'))
+        # model.add(BatchNormalization())
+        #
+        # model.add(Dense(5, activation='sigmoid'))
         model.summary()
 
         model.compile(loss='mse', optimizer=Adam(lr=self.learning_rate))
@@ -109,8 +104,8 @@ class TAgent:
             self.epsilon *= self.epsilon_decay
 
         mini_batch = random.sample(self.memory, self.batch_size)
-        state = np.zeros((self.batch_size, 280, 200, 3))
-        next_state = np.zeros((self.batch_size, 280, 200, 3))
+        state = np.zeros((self.batch_size, 50, 80, 1))
+        next_state = np.zeros((self.batch_size, 50, 80, 1))
 
         rewards, action1, action2  = [], [], []
         for i in range(self.batch_size):
@@ -123,12 +118,9 @@ class TAgent:
         self.y = self.model.predict(x=state, batch_size=self.batch_size)
         target_value = self.target_model.predict(x=next_state, batch_size=self.batch_size)
         target_value_number = target_value.argsort()
-
         for i in range(self.batch_size):
-            self.y[i][action1[i]] = rewards[i] + self.discount_factor * (target_value[i][target_value_number[i][4]])
-            self.y[i][action2[i]] = rewards[i] + self.discount_factor * (target_value[i][target_value_number[i][3]])
-
-        print("y :",self.y)
+            self.y[i][int(action1[i])] = rewards[i] + self.discount_factor * (target_value[i][target_value_number[i][4]])
+            self.y[i][int(action2[i])] = rewards[i] + self.discount_factor * (target_value[i][target_value_number[i][3]])
 
         self.model.fit(state, self.y, batch_size=self.batch_size)
         print("finish train")
