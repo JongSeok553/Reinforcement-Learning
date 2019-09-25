@@ -80,9 +80,7 @@ import random
 import re
 import weakref
 import cv2
-import matplotlib.pyplot as plt
 from lane_lines import filter_colors, gaussian_blur, canny, hough_lines, grayscale, region_of_interest, annotate_image, weighted_img
-
 
 try:
     import pygame
@@ -147,6 +145,10 @@ threshold = 15  # minimum number of votes (intersections in Hough grid cell)
 min_line_length = 10  # minimum number of pixels making up a line
 max_line_gap = 20  # maximum gap in pixels between connectable line segments
 
+point = np.array([[0, 250], [150, 0], [250, 0], [400, 250]], np.int32)
+# point = point.reshape((-1,1,2))
+
+
 def find_weather_presets():
     rgx = re.compile('.+?(?:(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])|$)')
     name = lambda x: ' '.join(m.group(0) for m in rgx.finditer(x))
@@ -177,6 +179,35 @@ def lane_detect(image_in):
     annotated_image = weighted_img(line_image, initial_image)
     return annotated_image
 
+def region_of_interest(img):
+    mask = np.zeros_like(img)
+    #channel_count = img.shape[2]
+    # np.array([(1, 1), (1, 2), (2, 1), (2, 2)], 'int32'), 255)
+    match_mask_color = 255
+    cv2.fillPoly(mask, [point], match_mask_color)
+    masked_image = cv2.bitwise_and(img, mask)
+    return masked_image
+
+def drow_the_lines(img, lines):
+    img = np.copy(img)
+    blank_image = np.zeros((img.shape[0], img.shape[1], 3), dtype=np.uint8)
+
+    for line in lines:
+        for x1, y1, x2, y2 in line:
+            cv2.line(blank_image, (x1,y1), (x2,y2), (0, 0, 255), thickness=5)
+
+    img = cv2.addWeighted(img, 0.8, blank_image, 1, 0.0)
+    return img
+
+def hough_transform(img):
+    lines = cv2.HoughLinesP(img,
+                    rho=6,
+                    theta=np.pi / 180,
+                    threshold=160,
+                    lines=np.array([]),
+                    minLineLength=40,
+                    maxLineGap=25)
+    return lines
 # ==============================================================================
 # -- World ---------------------------------------------------------------------
 # ==============================================================================
@@ -205,9 +236,9 @@ class World(object):
         # Keep same camera config if the camera manager exists.
         cam_index = self.camera_manager.index if self.camera_manager is not None else 0
         cam_pos_index = self.camera_manager.transform_index if self.camera_manager is not None else 0
+        cam_index = 5
         # Get a random blueprint.
-        # blueprint = random.choice(self.world.get_blueprint_library().filter(self._actor_filter))
-        blueprint = random.choice(self.world.get_blueprint_library().filter('vehicle.audi.tt'))
+        blueprint = random.choice(self.world.get_blueprint_library().filter(self._actor_filter))
         blueprint.set_attribute('role_name', self.actor_role_name)
         if blueprint.has_attribute('color'):
             color = random.choice(blueprint.get_attribute('color').recommended_values)
@@ -777,7 +808,6 @@ class CameraManager(object):
     @staticmethod
     def _parse_image(weak_self, image):
         global scene
-
         self = weak_self()
         if not self:
             return
@@ -798,23 +828,18 @@ class CameraManager(object):
             image.convert(self.sensors[self.index][1])
             array = np.frombuffer(image.raw_data, dtype=np.dtype("uint8"))
             array = np.reshape(array, (image.height, image.width, 4))
-            array = array[:, :, 3]
-            # array = array[:, :, ::-1]
-            # array = array[300:550, 200:600, ::-1]
+            array = array[:, :, :3]
+            array = array[300:550, 200:600, ::-1]
+            load_image = cv2.inRange(array, (156, 233, 49), (158, 245, 51))
 
-            # array = cv2.cvtColor(array, cv2.COLOR_RGB2BGR)
-            # array = cv2.cvtColor(array, cv2.COLOR_RGB2GRAY)
+            load_image = region_of_interest(load_image)
+            # lines = hough_transform(load_image)
+            # image_with_lines = drow_the_lines(array, lines)
 
-            # lanemap = lane_detect(array2)
-            # array3  = array3.swapaxes(0, 1)
-            scene = array
             self.surface = pygame.surfarray.make_surface(array.swapaxes(0, 1))
-
-            scene = array
-
-            # print(array3)
-
-
+            # lanemap = lane_detect(array)
+            # scene = array
+            #157, 234, 50 load lane
         if self.recording:
             image.save_to_disk('_out/%08d' % image.frame_number)
 
@@ -841,7 +866,6 @@ def game_loop(args):
         world = World(client.get_world(), hud, args.filter, args.rolename)
         controller = KeyboardControl(world, args.autopilot)
 
-
         clock = pygame.time.Clock()
         while True:
             clock.tick_busy_loop(60)
@@ -852,9 +876,6 @@ def game_loop(args):
             pygame.display.flip()
 
     finally:
-        cv2.imshow("dwdw",scene)
-        cv2.waitKey()
-    # .show()
 
         if (world and world.recording_enabled):
             client.stop_recorder()
@@ -930,4 +951,3 @@ def main():
 if __name__ == '__main__':
 
     main()
-

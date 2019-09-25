@@ -81,6 +81,7 @@ import re
 import weakref
 import sys
 import cv2
+
 try:
     import pygame
     from pygame.locals import KMOD_CTRL
@@ -206,8 +207,8 @@ class World(object):
             # spawn_point.location.x = -74.4
             # spawn_point.location.y = -15.0
             # spawn_point.location.z += 2.0
-            spawn_point.location.x = -58.4
-            spawn_point.location.y = -23.0
+            spawn_point.location.x = 130.5
+            spawn_point.location.y = 59.2
             spawn_point.location.z += 2.0
             spawn_point.rotation.roll = 0
             spawn_point.rotation.pitch = 0
@@ -1052,3 +1053,10 @@ def main():
 if __name__ == '__main__':
 
     main()
+
+
+# lower_yellow = np.array([20, 100, 100], dtype = “uint8”)
+# upper_yellow = np.array([30, 255, 255], dtype=”uint8")mask_yellow = cv2.inRange(img_hsv, lower_yellow, upper_yellow)
+# mask_white = cv2.inRange(gray_image, 200, 255)
+# mask_yw = cv2.bitwise_or(mask_white, mask_yellow)
+# mask_yw_image = cv2.bitwise_and(gray_image, mask_yw)
