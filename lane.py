@@ -48,10 +48,10 @@ from __future__ import print_function
 # -- find carla module ---------------------------------------------------------
 # ==============================================================================
 
+
 import glob
 import os
 import sys
-# import cv2
 
 try:
     sys.path.append(glob.glob('../carla/dist/carla-*%d.%d-%s.egg' % (
@@ -68,9 +68,9 @@ except IndexError:
 
 
 import carla
-from PIL import Image
+
 from carla import ColorConverter as cc
-from TestAgent import TAgent
+
 import argparse
 import collections
 import datetime
@@ -79,8 +79,8 @@ import math
 import random
 import re
 import weakref
-import sys
 import cv2
+from lane_lines import filter_colors, gaussian_blur, canny, hough_lines, grayscale, region_of_interest, annotate_image, weighted_img
 
 try:
     import pygame
@@ -125,6 +125,28 @@ except ImportError:
 # ==============================================================================
 # -- Global functions ----------------------------------------------------------
 # ==============================================================================
+global scene
+kernel_size = 3
+
+# Canny Edge Detector
+low_threshold = 50
+high_threshold = 150
+
+# Region-of-interest vertices
+# We want a trapezoid shape, with bottom edge at the bottom of the image
+trap_bottom_width = 0.85  # width of bottom edge of trapezoid, expressed as percentage of image width
+trap_top_width = 0.07  # ditto for top edge of trapezoid
+trap_height = 0.4  # height of the trapezoid expressed as percentage of image height
+
+# Hough Transform
+rho = 2  # distance resolution in pixels of the Hough grid
+theta = 1 * np.pi / 180  # angular resolution in radians of the Hough grid
+threshold = 15  # minimum number of votes (intersections in Hough grid cell)
+min_line_length = 10  # minimum number of pixels making up a line
+max_line_gap = 20  # maximum gap in pixels between connectable line segments
+
+point = np.array([[0, 250], [150, 0], [250, 0], [400, 250]], np.int32)
+# point = point.reshape((-1,1,2))
 
 
 def find_weather_presets():
@@ -138,33 +160,58 @@ def get_actor_display_name(actor, truncate=250):
     name = ' '.join(actor.type_id.replace('_', '.').title().split('.')[1:])
     return (name[:truncate - 1] + u'\u2026') if len(name) > truncate else name
 
+def lane_detect(image_in):
 
-state_data = [0]
-action_data = [0]
-reward_data = [0]
-reward = 0
-episode = 1
-steering = 0
-accel = 0
-brake = 0
-scene = np.zeros((50, 80, 1))
-scene2 = np.zeros((50, 80, 1))
-next_scene = 0
-pre_scene = 0
-scene_row = 0
-scene_col = 0
-scene_channel = 0
-train_start = 1000
-end_episode = False
-start = False
-# ==============================================================================
-# -- Agent ---------------------------------------------------------------------
-# ==============================================================================
+    image = filter_colors(image_in)
+    gray = grayscale(image)
+    blur_gray = gaussian_blur(gray, kernel_size=kernel_size)
+    edges = canny(blur_gray, low_threshold, high_threshold)
+    imshape = image.shape
+    vertices = np.array([[ \
+        ((imshape[1] * (1 - trap_bottom_width)) // 2, imshape[0]), \
+        ((imshape[1] * (1 - trap_top_width)) // 2, imshape[0] - imshape[0] * trap_height), \
+        (imshape[1] - (imshape[1] * (1 - trap_top_width)) // 2, imshape[0] - imshape[0] * trap_height), \
+        (imshape[1] - (imshape[1] * (1 - trap_bottom_width)) // 2, imshape[0])]] \
+        , dtype=np.int32)
+    masked_edges = region_of_interest(edges, vertices)
+    line_image = hough_lines(masked_edges, rho, theta, threshold, min_line_length, max_line_gap)
+    initial_image = image_in.astype('uint8')
+    annotated_image = weighted_img(line_image, initial_image)
+    return annotated_image
 
+def region_of_interest(img):
+    mask = np.zeros_like(img)
+    #channel_count = img.shape[2]
+    # np.array([(1, 1), (1, 2), (2, 1), (2, 2)], 'int32'), 255)
+    match_mask_color = 255
+    cv2.fillPoly(mask, [point], match_mask_color)
+    masked_image = cv2.bitwise_and(img, mask)
+    return masked_image
 
+def drow_the_lines(img, lines):
+    img = np.copy(img)
+    blank_image = np.zeros((img.shape[0], img.shape[1], 3), dtype=np.uint8)
+
+    for line in lines:
+        for x1, y1, x2, y2 in line:
+            cv2.line(blank_image, (x1,y1), (x2,y2), (0, 0, 255), thickness=5)
+
+    img = cv2.addWeighted(img, 0.8, blank_image, 1, 0.0)
+    return img
+
+def hough_transform(img):
+    lines = cv2.HoughLinesP(img,
+                    rho=6,
+                    theta=np.pi / 180,
+                    threshold=160,
+                    lines=np.array([]),
+                    minLineLength=40,
+                    maxLineGap=25)
+    return lines
 # ==============================================================================
 # -- World ---------------------------------------------------------------------
 # ==============================================================================
+
 
 class World(object):
     def __init__(self, carla_world, hud, actor_filter, actor_role_name='hero'):
@@ -177,8 +224,6 @@ class World(object):
         self.lane_invasion_sensor = None
         self.gnss_sensor = None
         self.camera_manager = None
-        self.camera_manager2 = None
-        self.camera_manager3 = None
         self._weather_presets = find_weather_presets()
         self._weather_index = 0
         self._actor_filter = actor_filter
@@ -188,15 +233,12 @@ class World(object):
         self.recording_start = 0
 
     def restart(self):
-        global reward
         # Keep same camera config if the camera manager exists.
         cam_index = self.camera_manager.index if self.camera_manager is not None else 0
         cam_pos_index = self.camera_manager.transform_index if self.camera_manager is not None else 0
-
-        # cam_index2 = 3
-        # cam_index3 = 5
+        cam_index = 5
         # Get a random blueprint.
-        blueprint = random.choice(self.world.get_blueprint_library().filter('vehicle.audi.tt'))
+        blueprint = random.choice(self.world.get_blueprint_library().filter(self._actor_filter))
         blueprint.set_attribute('role_name', self.actor_role_name)
         if blueprint.has_attribute('color'):
             color = random.choice(blueprint.get_attribute('color').recommended_values)
@@ -204,16 +246,9 @@ class World(object):
         # Spawn the player.
         if self.player is not None:
             spawn_point = self.player.get_transform()
-            # spawn_point.location.x = -74.4
-            # spawn_point.location.y = -15.0
-            # spawn_point.location.z += 2.0
-            spawn_point.location.x = 130.5
-            spawn_point.location.y = 59.2
             spawn_point.location.z += 2.0
-            spawn_point.rotation.roll = 0
-            spawn_point.rotation.pitch = 0
-            spawn_point.rotation.yaw = -90
-            reward = 0
+            spawn_point.rotation.roll = 0.0
+            spawn_point.rotation.pitch = 0.0
             self.destroy()
             self.player = self.world.try_spawn_actor(blueprint, spawn_point)
         while self.player is None:
@@ -227,15 +262,6 @@ class World(object):
         self.camera_manager = CameraManager(self.player, self.hud)
         self.camera_manager.transform_index = cam_pos_index
         self.camera_manager.set_sensor(cam_index, notify=False)
-        #
-        # self.camera_manager2 = CameraManager(self.player, self.hud)
-        # self.camera_manager2.transform_index = cam_pos_index
-        # self.camera_manager2.set_sensor(cam_index2, notify=False)
-
-        # self.camera_manager3 = CameraManager(self.player, self.hud)
-        # self.camera_manager3.transform_index = cam_pos_index
-        # self.camera_manager3.set_sensor(cam_index3, notify=False)
-
         actor_type = get_actor_display_name(self.player)
         self.hud.notification(actor_type)
 
@@ -251,25 +277,16 @@ class World(object):
 
     def render(self, display):
         self.camera_manager.render(display)
+        # self.hud.render(display)
 
     def destroy_sensors(self):
         self.camera_manager.sensor.destroy()
         self.camera_manager.sensor = None
         self.camera_manager.index = None
 
-        # self.camera_manager2.sensor.destroy()
-        # self.camera_manager2.sensor = None
-        # self.camera_manager2.index = None
-
-        # self.camera_manager3.sensor.destroy()
-        # self.camera_manager3.sensor = None
-        # self.camera_manager3.index = None
-
     def destroy(self):
         actors = [
             self.camera_manager.sensor,
-            # self.camera_manager2.sensor,
-            # self.camera_manager3.sensor,
             self.collision_sensor.sensor,
             self.lane_invasion_sensor.sensor,
             self.gnss_sensor.sensor,
@@ -286,7 +303,6 @@ class World(object):
 class KeyboardControl(object):
     def __init__(self, world, start_in_autopilot):
         self._autopilot_enabled = start_in_autopilot
-
         if isinstance(world.player, carla.Vehicle):
             self._control = carla.VehicleControl()
             world.player.set_autopilot(self._autopilot_enabled)
@@ -300,15 +316,6 @@ class KeyboardControl(object):
         world.hud.notification("Press 'H' or '?' for help.", seconds=4.0)
 
     def parse_events(self, client, world, clock):
-        global train_start
-        global end_episode
-        global episode
-        global start
-
-        if end_episode:
-            end_episode = False
-            episode += 1
-            world.restart()
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 return True
@@ -316,8 +323,7 @@ class KeyboardControl(object):
                 if self._is_quit_shortcut(event.key):
                     return True
                 elif event.key == K_BACKSPACE:
-                    world.camera_manager.toggle_camera()
-                    start = True
+                    world.camera_manager.ridar_sensor_on()
                     world.restart()
                 elif event.key == K_F1:
                     world.hud.toggle_info()
@@ -386,41 +392,13 @@ class KeyboardControl(object):
                         self._autopilot_enabled = not self._autopilot_enabled
                         world.player.set_autopilot(self._autopilot_enabled)
                         world.hud.notification('Autopilot %s' % ('On' if self._autopilot_enabled else 'Off'))
-        # if not self._autopilot_enabled:
-        #     if isinstance(self._control, carla.VehicleControl):
-        #         self._parse_vehicle_keys(pygame.key.get_pressed(), clock.get_time())
-        #         self._control.reverse = self._control.gear < 0
-        #     elif isinstance(self._control, carla.WalkerControl):
-        #         self._parse_walker_keys(pygame.key.get_pressed(), clock.get_time())
-        #     world.player.apply_control(self._control)
-
-    def do_action(self, world, milliseconds, action1, action2):
-        global reward
-        if action1 == 0 or action2 == 0:
-            self._control.throttle = 1.0
-        else:
-            self._control.throttle = 0
-
-        steer_increment = 5e-4 * milliseconds   #5e-4
-        if action1 == 1 or action2 == 1:
-            self._steer_cache = self._steer_cache - steer_increment
-        elif action1 == 2 or action2 == 2:
-            self._steer_cache = self._steer_cache + steer_increment
-        else:
-            self._steer_cache = 0
-
-        if action1 == 3 or action2 == 3:
-            self._control.brake = 1
-        else :
-            self._control.brake = 0
-
-        if action1 == 4 or action2 == 4:
-            pass
-
-        self._steer_cache = min(0.7, max(-0.7, self._steer_cache))
-        self._control.steer = round(self._steer_cache, 1)
-        # self._control.brake = 1.0 if br else 0.0
-        world.player.apply_control(self._control)
+        if not self._autopilot_enabled:
+            if isinstance(self._control, carla.VehicleControl):
+                self._parse_vehicle_keys(pygame.key.get_pressed(), clock.get_time())
+                self._control.reverse = self._control.gear < 0
+            elif isinstance(self._control, carla.WalkerControl):
+                self._parse_walker_keys(pygame.key.get_pressed(), clock.get_time())
+            world.player.apply_control(self._control)
 
     def _parse_vehicle_keys(self, keys, milliseconds):
         self._control.throttle = 1.0 if keys[K_UP] or keys[K_w] else 0.0
@@ -487,8 +465,6 @@ class HUD(object):
         self.simulation_time = timestamp.elapsed_seconds
 
     def tick(self, world, clock):
-        global reward
-        global end_episode
         self._notifications.tick(world, clock)
         if not self._show_info:
             return
@@ -500,30 +476,10 @@ class HUD(object):
         heading += 'E' if 179.5 > t.rotation.yaw > 0.5 else ''
         heading += 'W' if -0.5 > t.rotation.yaw > -179.5 else ''
         colhist = world.collision_sensor.get_collision_history()
-        lane = world.lane_invasion_sensor.get_lane()
         collision = [colhist[x + self.frame_number - 200] for x in range(0, 200)]
         max_col = max(1.0, max(collision))
         collision = [x / max_col for x in collision]
         vehicles = world.world.get_actors().filter('vehicle.*')
-        speed = 3.6 * math.sqrt(v.x ** 2 + v.y ** 2 + v.z ** 2)
-
-        # print((3.6 * math.sqrt(v.x**2 + v.y**2 + v.z**2))/50.)
-        if speed < 2:
-            reward = reward - 0.001
-        else:
-            reward = reward + 0.001
-        if colhist[self.frame_number] > 0:
-            reward = reward - (1 + speed/100)
-            end_episode = True
-            return
-
-        if (len(lane) == 11 or len(lane) > 13):
-            reward = reward - (1 + speed/100)
-            end_episode = True
-            return
-        # elif speed > 10 and len(lane) < 10:
-        #     reward = reward + 0.01
-
         self._info_text = [
             'Server:  % 16.0f FPS' % self.server_fps,
             'Client:  % 16.0f FPS' % clock.get_fps(),
@@ -557,17 +513,15 @@ class HUD(object):
             collision,
             '',
             'Number of vehicles: % 8d' % len(vehicles)]
-        # if len(vehicles) > 1:
-        #     self._info_text += ['Nearby vehicles:']
-        #     distance = lambda l: math.sqrt((l.x - t.location.x)**2 + (l.y - t.location.y)**2 + (l.z - t.location.z)**2)
-        #     vehicles = [(distance(x.get_location()), x) for x in vehicles if x.id != world.player.id]
-        #     for d, vehicle in sorted(vehicles):
-        #         if d > 200.0:
-        #             break
-        #         vehicle_type = get_actor_display_name(vehicle, truncate=22)
-        #         self._info_text.append('% 4dm %s' % (d, vehicle_type))
-        # else:
-        #     pass
+        if len(vehicles) > 1:
+            self._info_text += ['Nearby vehicles:']
+            distance = lambda l: math.sqrt((l.x - t.location.x)**2 + (l.y - t.location.y)**2 + (l.z - t.location.z)**2)
+            vehicles = [(distance(x.get_location()), x) for x in vehicles if x.id != world.player.id]
+            for d, vehicle in sorted(vehicles):
+                if d > 200.0:
+                    break
+                vehicle_type = get_actor_display_name(vehicle, truncate=22)
+                self._info_text.append('% 4dm %s' % (d, vehicle_type))
 
     def toggle_info(self):
         self._show_info = not self._show_info
@@ -723,7 +677,6 @@ class LaneInvasionSensor(object):
         self.sensor = None
         self._parent = parent_actor
         self.hud = hud
-        self.type_lane = None
         world = self._parent.get_world()
         bp = world.get_blueprint_library().find('sensor.other.lane_invasion')
         self.sensor = world.spawn_actor(bp, carla.Transform(), attach_to=self._parent)
@@ -731,9 +684,6 @@ class LaneInvasionSensor(object):
         # reference.
         weak_self = weakref.ref(self)
         self.sensor.listen(lambda event: LaneInvasionSensor._on_invasion(weak_self, event))
-
-    def get_lane(self):
-        return str(self.type_lane)
 
     @staticmethod
     def _on_invasion(weak_self, event):
@@ -744,16 +694,8 @@ class LaneInvasionSensor(object):
         text = ['%r' % str(x).split()[-1] for x in lane_types]
         self.hud.notification('Crossed line %s' % ' and '.join(text))
         self.type_lane = text
-        # if self.type_lane.startswith('Broken'):
-        #     print("broken")
-        # elif self.type_lane.startswith('Solid'):
-        #     print("Solid")
-        # elif self.type_lane.startswith('BrokenSolid'):
-        #     print("BrokenSolid")
-        # elif self.type_lane.startswith('SolidBroken'):
-        #     print("SolidBroken")
-        # else:
-        #     print("good")
+
+
 # ==============================================================================
 # -- GnssSensor --------------------------------------------------------
 # ==============================================================================
@@ -791,7 +733,6 @@ class CameraManager(object):
     def __init__(self, parent_actor, hud):
         self.sensor = None
         self.surface = None
-
         self._parent = parent_actor
         self.hud = hud
         self.recording = False
@@ -832,7 +773,6 @@ class CameraManager(object):
             if self.sensor is not None:
                 self.sensor.destroy()
                 self.surface = None
-
             self.sensor = self._parent.get_world().spawn_actor(
                 self.sensors[index][-1],
                 self._camera_transforms[self.transform_index],
@@ -843,8 +783,7 @@ class CameraManager(object):
             self.sensor.listen(lambda image: CameraManager._parse_image(weak_self, image))
         if notify:
             self.hud.notification(self.sensors[index][2])
-        self.index = index # depth map
-
+        self.index = index
 
     def next_sensor(self):
         self.set_sensor(self.index + 1)
@@ -853,18 +792,22 @@ class CameraManager(object):
         self.recording = not self.recording
         self.hud.notification('Recording %s' % ('On' if self.recording else 'Off'))
 
+    def ridar_sensor_on(self):
+        self.sensor = self._parent.get_world().spawn_actor(
+            self.sensors[6][-1],
+            self._camera_transforms[self.transform_index],
+            attach_to=self._parent)
+        weak_self = weakref.ref(self)
+        self.sensor.listen(lambda image: CameraManager._parse_image(weak_self, image))
+        self.index = 6
+
     def render(self, display):
-        global scene
-        global scene2
         if self.surface is not None:
-            display.blit(self.surface, (0, 0)) # x,y
-            # scene = pygame.transform.scale(self.surface, (280, 200))
-            # scene = pygame.surfarray.array3d(scene)
+            display.blit(self.surface, (0, 0))
 
     @staticmethod
     def _parse_image(weak_self, image):
         global scene
-        global scene2
         self = weak_self()
         if not self:
             return
@@ -881,42 +824,36 @@ class CameraManager(object):
             lidar_img = np.zeros(lidar_img_size)
             lidar_img[tuple(lidar_data.T)] = (255, 255, 255)
             self.surface = pygame.surfarray.make_surface(lidar_img)
-
         else:
-            image.convert(self.sensors[self.index][1])  # self.index
+            image.convert(self.sensors[self.index][1])
             array = np.frombuffer(image.raw_data, dtype=np.dtype("uint8"))
             array = np.reshape(array, (image.height, image.width, 4))
-            array = array[300:550, 200:600, :3]
-            array2 = cv2.cvtColor(array, cv2.COLOR_RGB2GRAY)
-            canny = cv2.Canny(array2, 100,200)
-            # array = array[:, :, ::-1]
-            # array2 = array[300:550, 200:600, ::-1] # y , x 2.4 :1 -> 1/6 축소 (42*100)
-            crop_image = cv2.resize(canny,dsize=(80,50),interpolation = cv2.INTER_AREA)
-            crop_image = np.reshape(crop_image, (50,80,1))
-            scene = crop_image
-            self.surface = pygame.surfarray.make_surface(array.swapaxes(0, 1))
+            array = array[:, :, :3]
+            array = array[300:550, 200:600, ::-1]
+            load_image = cv2.inRange(array, (156, 233, 49), (158, 245, 51))
 
+            load_image = region_of_interest(load_image)
+            # lines = hough_transform(load_image)
+            # image_with_lines = drow_the_lines(array, lines)
+
+            self.surface = pygame.surfarray.make_surface(array.swapaxes(0, 1))
+            # lanemap = lane_detect(array)
+            # scene = array
+            #157, 234, 50 load lane
+        if self.recording:
+            image.save_to_disk('_out/%08d' % image.frame_number)
 
 
 # ==============================================================================
 # -- game_loop() ---------------------------------------------------------------
 # ==============================================================================
 
+
 def game_loop(args):
     pygame.init()
     pygame.font.init()
-    global next_scene
-    global pre_scene
-    global reward
-    global scene
-    global scene2
-    global end_episode
     world = None
-    ddd = TAgent()
-    train_timestep = 0
-    score = 0
-    end_score = 0
-
+    global scene
     try:
         client = carla.Client(args.host, args.port)
         client.set_timeout(2.0)
@@ -931,57 +868,12 @@ def game_loop(args):
 
         clock = pygame.time.Clock()
         while True:
-            if not start:
-                clock.tick_busy_loop(40)
-                if controller.parse_events(client, world, clock):
-                    return
-                world.tick(clock)
-                world.render(display)
-                pygame.display.flip()
-                ddd.replaymemory(0, 0, 0, 0, 0)
-
-
-            else:
-                train_timestep += clock.tick_busy_loop(60)
-                action1, action2 = ddd.get_action(scene)
-                pre_scene = scene
-                controller.do_action(world, clock.get_time(), action1, action2)
-                world.tick(clock)
-                world.render(display)
-                pygame.display.flip()
-                next_scene = scene
-                score += reward
-                ddd.replaymemory(pre_scene, action1,action2, reward, next_scene)
-                if train_timestep > 3000:
-                    ddd.model_train()
-                    train_timestep = 0
-                    print("score ", score)
-                    end_score += score
-                    if end_score < -5:
-                        end_episode = True
-                        print("minus score !!!!!, update target model")
-                        end_score = 0
-                    elif end_score > 5:
-                        end_episode = True
-                        print("plus score !!!!!, update target model")
-                        end_score = 0
-                    score = 0
-                reward = 0
-                if end_episode:
-                    ddd.update_target_model()
-                    print("episode ", episode, "score ", score, "epsilon ", ddd.epsilon)
-                    end_score = 0
-                    if episode > 50000:  # np.mean(score[-min(10, len(score)):]) > 5:
-                        # if episode > 200:
-                        ddd.model.save_weights("model_save/2019_09_20_15.h5")
-                        print("weight file save")
-                        sys.exit()
-                    score = 0
-
-                if controller.parse_events(client, world, clock):
-                    return
-
-
+            clock.tick_busy_loop(60)
+            if controller.parse_events(client, world, clock):
+                return
+            world.tick(clock)
+            world.render(display)
+            pygame.display.flip()
 
     finally:
 
@@ -989,10 +881,8 @@ def game_loop(args):
             client.stop_recorder()
 
         if world is not None:
-
             world.destroy()
-        ddd.model.save_weights("model_save/2019_09_20_15.h5")
-        print("model save~~")
+
         pygame.quit()
 
 
@@ -1028,7 +918,7 @@ def main():
         '--res',
         metavar='WIDTHxHEIGHT',
         default='800x600',
-        help='window resolution (default: 1280*720)') ## 1280*720
+        help='window resolution (default: 1280x720)')
     argparser.add_argument(
         '--filter',
         metavar='PATTERN',
@@ -1061,10 +951,3 @@ def main():
 if __name__ == '__main__':
 
     main()
-
-
-# lower_yellow = np.array([20, 100, 100], dtype = “uint8”)
-# upper_yellow = np.array([30, 255, 255], dtype=”uint8")mask_yellow = cv2.inRange(img_hsv, lower_yellow, upper_yellow)
-# mask_white = cv2.inRange(gray_image, 200, 255)
-# mask_yw = cv2.bitwise_or(mask_white, mask_yellow)
-# mask_yw_image = cv2.bitwise_and(gray_image, mask_yw)
