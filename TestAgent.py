@@ -8,6 +8,7 @@ import numpy as np
 import random
 import tensorflow as tf
 import sys
+from keras.models import load_model
 
 run_opts = tf.RunOptions(report_tensor_allocations_upon_oom = True)
 

@@ -1,12 +1,13 @@
 import numpy as np
 import csv
-from keras.models import Sequential
+from keras.models import Sequential, save_model
 from keras.layers import Conv2D, Dense, Dropout, Activation, Flatten, MaxPooling2D, BatchNormalization
 from keras.optimizers import Adam
 from keras import metrics
+from keras import models
 import numpy as np
-import random
-import tensorflow as tf
+import matplotlib.pyplot as plt
+
 # f = open('data.txt','r')
 # lines = f.readlines()
 # # print(lines)
@@ -34,7 +35,6 @@ class Train:
         self.lines = self.f.readlines()
         self.data_length = len(self.lines)
         self.learning_rate = 0.001
-        self.batch_size = 128
         self.input_shape = 2
         self.output_shape = 3
         self.X_train = np.zeros((self.data_length, self.input_shape))
@@ -43,6 +43,13 @@ class Train:
         self.steer = []
         self.brake = []
         self.model = self.build_model()
+        self.hist = 0
+        self.epochs = 7
+        self.batch_size = 500
+
+
+
+
 
     def build_model(self):
         model = Sequential()
@@ -62,13 +69,39 @@ class Train:
             self.X_train[i][0] = float(data[0])
             self.X_train[i][1] = float(data[1])
 
+
         for i in range(self.data_length):
+            data = self.lines[i].split('\t')
             self.Y_train[i][0] = float(data[2])
             self.Y_train[i][1] = float(data[3])
             self.Y_train[i][2] = float(data[4])
+            # print(self.Y_train[i][0])
 
-        self.model.fit(self.X_train, self.Y_train, epochs=10000, batch_size=self.batch_size)
+        self.hist = self.model.fit(self.X_train, self.Y_train, epochs=self.epochs, batch_size=self.batch_size)
+
+    def result_plot(self):
+        fig, loss_ax = plt.subplots()
+
+        acc_ax = loss_ax.twinx()
+
+        loss_ax.plot(self.hist.history['loss'], 'y', label='train loss')
+
+        # acc_ax.plot(self.hist.history['acc'], 'b', label='train acc')
+
+        loss_ax.set_xlabel('epoch')
+        loss_ax.set_ylabel('loss')
+        # acc_ax.set_ylabel('accuray')
+
+        loss_ax.legend(loc='upper left')
+        # acc_ax.legend(loc='lower left')
+        plt.savefig('model_supervised/plot/Test' + str(self.epochs) + '.png')
+        plt.show()
+        print('Test' + str(self.epochs) + '.png' + ' save plot file')
+
 
 if __name__ == '__main__':
     train = Train()
     train.train_model()
+    train.model.save('model_supervised/' + 'Test' + str(train.epochs) + '.h5')
+    print('Test' + str(train.epochs) + '.h5' + " save weight file")
+    train.result_plot()

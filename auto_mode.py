@@ -79,7 +79,7 @@ import math
 import random
 import re
 import weakref
-
+from supervised import Train
 try:
     import pygame
     from pygame.locals import KMOD_CTRL
@@ -109,6 +109,7 @@ try:
     from pygame.locals import K_r
     from pygame.locals import K_s
     from pygame.locals import K_w
+    from pygame.locals import K_o
     from pygame.locals import K_MINUS
     from pygame.locals import K_EQUALS
 except ImportError:
@@ -128,6 +129,7 @@ global automode
 
 automode = False
 restart = False
+
 
 def find_weather_presets():
     rgx = re.compile('.+?(?:(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])|$)')
@@ -203,7 +205,7 @@ class World(object):
         self.camera_manager.set_sensor(cam_index, notify=False)
         actor_type = get_actor_display_name(self.player)
         self.hud.notification(actor_type)
-        self.player.set_autopilot(True) # autopilot mode on
+        self.player.set_autopilot(True)  # autopilot mode on
 
     def next_weather(self, reverse=False):
         self._weather_index += -1 if reverse else 1
@@ -213,7 +215,7 @@ class World(object):
         self.player.get_world().set_weather(preset[0])
 
     def tick(self, clock):
-        self.hud.tick(self, clock)
+        return self.hud.tick(self, clock)
 
     def render(self, display):
         self.camera_manager.render(display)
@@ -243,6 +245,7 @@ class World(object):
 class KeyboardControl(object):
     global restart
     global automode
+    global Test_on
 
     def __init__(self, world, start_in_autopilot):
         self._autopilot_enabled = start_in_autopilot
@@ -342,15 +345,13 @@ class KeyboardControl(object):
                         world.hud.notification('Autopilot %s' % ('On' if self._autopilot_enabled else 'Off'))
 
 
-
-
-        if not self._autopilot_enabled:
-            if isinstance(self._control, carla.VehicleControl):
-                self._parse_vehicle_keys(pygame.key.get_pressed(), clock.get_time())
-                self._control.reverse = self._control.gear < 0
-            elif isinstance(self._control, carla.WalkerControl):
-                self._parse_walker_keys(pygame.key.get_pressed(), clock.get_time())
-            world.player.apply_control(self._control)
+        # if not self._autopilot_enabled:
+        #     if isinstance(self._control, carla.VehicleControl):
+        #         self._parse_vehicle_keys(pygame.key.get_pressed(), clock.get_time())
+        #         self._control.reverse = self._control.gear < 0
+        #     elif isinstance(self._control, carla.WalkerControl):
+        #         self._parse_walker_keys(pygame.key.get_pressed(), clock.get_time())
+        #     world.player.apply_control(self._control)
 
     def _parse_vehicle_keys(self, keys, milliseconds):
         self._control.throttle = 1.0 if keys[K_UP] or keys[K_w] else 0.0
@@ -431,15 +432,12 @@ class HUD(object):
         xx = int(t.location.x)
         yy = int(t.location.y)
         if automode:
-            # print(t.location.x, t.location.y, c.throttle, c.steer, c.brake)
-            # data = [t.location.x, t.location.y, c.throttle, c.steer, c.brake]
             data = str(t.location.x) + '\t' + str(t.location.y) + '\t' + str(c.throttle) + '\t' + str(c.steer) + '\t' + str(c.brake)
             self.file.write(data)
             self.file.write('\n')
         if (abs(17-xx) < 2) and (abs(130-yy) < 2):
             automode = False
             self.file.close()
-
             restart = True
 
         # print(c.throttle, c.steer, c.brake)
@@ -494,6 +492,7 @@ class HUD(object):
                     break
                 vehicle_type = get_actor_display_name(vehicle, truncate=22)
                 self._info_text.append('% 4dm %s' % (d, vehicle_type))
+        return t.location.x, t.location.y
 
     def toggle_info(self):
         self._show_info = not self._show_info
@@ -812,9 +811,11 @@ class CameraManager(object):
 
 
 def game_loop(args):
+    global Test_on
     pygame.init()
     pygame.font.init()
     world = None
+
     data_file = open('data.txt', 'w')
     try:
         client = carla.Client(args.host, args.port)
@@ -844,7 +845,7 @@ def game_loop(args):
 
         if world is not None:
             world.destroy()
-
+        data_file.close()
         pygame.quit()
 
 
