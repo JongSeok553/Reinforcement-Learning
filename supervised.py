@@ -44,7 +44,7 @@ class Train:
         self.brake = []
         self.model = self.build_model()
         self.hist = 0
-        self.epochs = 7
+        self.epochs = 150000
         self.batch_size = 500
 
 
@@ -54,9 +54,15 @@ class Train:
     def build_model(self):
         model = Sequential()
         model.add(Dense(64, input_shape=(self.input_shape, ), activation='relu'))
+        model.add(BatchNormalization())
         model.add(Dense(64, activation='relu'))
+        model.add(Dropout(0.3))
+        model.add(BatchNormalization())
         model.add(Dense(32, activation='relu'))
+        model.add(BatchNormalization())
+        model.add(Dropout(0.3))
         model.add(Dense(10, activation='relu'))
+        model.add(BatchNormalization())
         model.add(Dense(self.output_shape, activation='tanh'))
         # accel, brake는 0이하는 0으로 처리해야할듯..
         model.summary()
