@@ -30,13 +30,19 @@ class plot_trajectory:
 
     def file_read(self):
         self.original = 'Original_trajectory.txt'
-        self.trajectory_name = 'Test_trajectory' + str(self.version) + '.txt'
-        self.trajectory_name2 = 'Test_trajectory' + str(self.version2) + '.txt'
-        self.trajectory_name3 = 'Test_trajectory' + str(self.version3) + '.txt'
-        self.trajectory_name4 = 'Test_trajectory' + str(self.version4) + '.txt'
-        self.trajectory_name5 = 'Test_trajectory' + str(self.version5) + '.txt'
-        self.trajectory_name6 = 'Test_trajectory' + str(self.version5) + '.txt'
-        self.trajectory_name7 = 'Test_trajectory' + str(self.version5) + '.txt'
+        # self.trajectory_name = 'Test_trajectory' + str(self.version) + '.txt'
+        # self.trajectory_name2 = 'Test_trajectory' + str(self.version2) + '.txt'
+        # self.trajectory_name3 = 'Test_trajectory' + str(self.version3) + '.txt'
+        # self.trajectory_name4 = 'Test_trajectory' + str(self.version4) + '.txt'
+        # self.trajectory_name5 = 'Test_trajectory' + str(self.version5) + '.txt'
+        # self.trajectory_name6 = 'Test_trajectory' + str(self.version5) + '.txt'
+        # self.trajectory_name7 = 'Test_trajectory' + str(self.version5) + '.txt'
+        self.trajectory_name = 's500_batch_heading_Test' + str(self.version) + '.txt'
+        self.trajectory_name2 = '6_layers_Test' + str(self.version2) + '.txt'
+        self.trajectory_name3 = '6_layers_Test' + str(self.version3) + '.txt'
+        self.trajectory_name4 = '6_layers_Test' + str(self.version4) + '.txt'
+        self.trajectory_name5 = '6_layers_Test' + str(self.version5) + '.txt'
+        self.trajectory_name6 = '6_layers_Test' + str(self.version5) + '.txt'
 
         self.original_file = open(self.trajectory_path + self.original, 'r')
         self.trajectory_file = open(self.trajectory_path + self.trajectory_name, 'r')
@@ -45,7 +51,7 @@ class plot_trajectory:
         self.trajectory_file4 = open(self.trajectory_path + self.trajectory_name4, 'r')
         self.trajectory_file5 = open(self.trajectory_path + self.trajectory_name5, 'r')
         self.trajectory_file6 = open(self.trajectory_path + self.trajectory_name6, 'r')
-        self.trajectory_file7 = open(self.trajectory_path + self.trajectory_name7, 'r')
+        # self.trajectory_file7 = open(self.trajectory_path + self.trajectory_name7, 'r')
 
 
 
@@ -56,7 +62,7 @@ class plot_trajectory:
         self.lines4 = self.trajectory_file4.readlines()
         self.lines5 = self.trajectory_file5.readlines()
         self.lines6 = self.trajectory_file6.readlines()
-        self.lines7 = self.trajectory_file7.readlines()
+        # self.lines7 = self.trajectory_file7.readlines()
 
 
 
@@ -67,7 +73,7 @@ class plot_trajectory:
         self.trajectory_length4 = len(self.lines4)
         self.trajectory_length5 = len(self.lines5)
         self.trajectory_length6 = len(self.lines6)
-        self.trajectory_length7 = len(self.lines7)
+        # self.trajectory_length7 = len(self.lines7)
 
 
         self.ox = np.zeros((self.original_length, 1))
@@ -91,8 +97,8 @@ class plot_trajectory:
         self.x6 = np.zeros((self.trajectory_length6, 1))
         self.y6 = np.zeros((self.trajectory_length6, 1))
 
-        self.x7 = np.zeros((self.trajectory_length7, 1))
-        self.y7 = np.zeros((self.trajectory_length7, 1))
+        # self.x7 = np.zeros((self.trajectory_length7, 1))
+        # self.y7 = np.zeros((self.trajectory_length7, 1))
 
     def plot(self):
         for i in range(self.trajectory_length):
@@ -124,10 +130,10 @@ class plot_trajectory:
             self.x6[i][0] = float(data[0])
             self.y6[i][0] = float(data[1])
 
-        for i in range(self.trajectory_length7):
-            data = self.lines7[i].split('\t')
-            self.x7[i][0] = float(data[0])
-            self.y7[i][0] = float(data[1])
+        # for i in range(self.trajectory_length7):
+        #     data = self.lines7[i].split('\t')
+        #     self.x7[i][0] = float(data[0])
+        #     self.y7[i][0] = float(data[1])
 
         for i in range(self.original_length):
             data = self.original_lines[i].split('\t')
@@ -149,8 +155,8 @@ class plot_trajectory:
         plt.legend(loc='lower left')
         plt.plot(self.y6, self.x6, label='epoch 70000')
         plt.legend(loc='lower left')
-        plt.plot(self.y7, self.x7, label='epoch 150000')
-        plt.legend(loc='lower left')
+        # plt.plot(self.y7, self.x7, label='epoch 150000')
+        # plt.legend(loc='lower left')
         plt.show()
 
 

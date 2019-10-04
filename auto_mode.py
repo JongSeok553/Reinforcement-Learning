@@ -432,7 +432,7 @@ class HUD(object):
         xx = int(t.location.x)
         yy = int(t.location.y)
         if automode:
-            data = str(t.location.x) + '\t' + str(t.location.y) + '\t' + str(c.throttle) + '\t' + str(c.steer) + '\t' + str(c.brake)
+            data = str(t.location.x) + '\t' + str(t.location.y) + '\t' + str(t.rotation.yaw) + '\t' + str(c.throttle) + '\t' + str(c.steer) + '\t' + str(c.brake)
             self.file.write(data)
             self.file.write('\n')
         if (abs(17-xx) < 2) and (abs(130-yy) < 2):
@@ -815,8 +815,8 @@ def game_loop(args):
     pygame.init()
     pygame.font.init()
     world = None
-
-    data_file = open('data.txt', 'w')
+    data_file_path = 'model_supervised/'
+    data_file = open(data_file_path + 'heading_data.txt', 'w')
     try:
         client = carla.Client(args.host, args.port)
         client.set_timeout(2.0)
