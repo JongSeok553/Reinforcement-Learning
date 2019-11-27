@@ -48,10 +48,6 @@ class Train:
         self.epochs = 10000
         self.batch_size = 1000
 
-
-
-
-
     def build_model(self):
         model = Sequential()
         model.add(Dense(64, input_shape=(self.input_shape, ), activation='relu'))
@@ -73,8 +69,6 @@ class Train:
             self.X_train[i][1] = float(data[1])
             self.X_train[i][2] = float(data[2])
 
-        for i in range(self.data_length):
-            data = self.lines[i].split('\t')
             self.Y_train[i][0] = float(data[3])
             self.Y_train[i][1] = float(data[4])
             self.Y_train[i][2] = float(data[5])
@@ -105,6 +99,6 @@ class Train:
 if __name__ == '__main__':
     train = Train()
     train.train_model()
-    train.model.save('model_supervised/' + '1000_batch_heading_Test' + str(train.epochs) + '.h5')
+    train.model.save('model_supervised/' + 'TTTTTTTTTTTTt' + str(train.epochs) + '.h5')
     print('1000_batch_heading_Test' + str(train.epochs) + '.h5' + " save weight file")
     train.result_plot()
