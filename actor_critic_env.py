@@ -70,7 +70,7 @@ except IndexError:
 import carla
 
 from carla import ColorConverter as cc
-
+from train_actor_critic import A2C
 import argparse
 import collections
 import datetime
@@ -80,8 +80,8 @@ import random
 import re
 import weakref
 import cv2
+from keras.models import load_model
 
-from supervised import Train
 try:
     import pygame
     from pygame.locals import KMOD_CTRL
@@ -126,14 +126,20 @@ except ImportError:
 # ==============================================================================
 # -- Global functions ----------------------------------------------------------
 # ==============================================================================
-global restart
-global automode
-global image_count, capture
-global crop_image
-global crop_image
-global data_file
-automode = False
-restart = False
+global Test_on
+global col
+global reward
+global velocity
+global max_distance, max_step, count, total_reward, episode, pre_d, d, Train_on, pre_reward
+global image_count, temp_image
+global crop_image, automode, step
+
+velocity = 0
+reward = 0
+col = False
+Test_on = False
+
+
 
 
 def find_weather_presets():
@@ -173,8 +179,7 @@ class World(object):
         self.recording_start = 0
 
     def restart(self):
-        global restart
-        restart = False
+        global Test_on
 
         # Keep same camera config if the camera manager exists.
         cam_index = self.camera_manager.index if self.camera_manager is not None else 0
@@ -191,7 +196,7 @@ class World(object):
             spawn_point = self.player.get_transform()
             spawn_point.location.x = 130.5
             spawn_point.location.y = 59.2
-            spawn_point.location.z += 1.0
+            spawn_point.location.z += 2.0
             spawn_point.rotation.roll = 0.0
             spawn_point.rotation.pitch = 0.0
             spawn_point.rotation.yaw = -180
@@ -205,12 +210,11 @@ class World(object):
         self.collision_sensor = CollisionSensor(self.player, self.hud)
         self.lane_invasion_sensor = LaneInvasionSensor(self.player, self.hud)
         self.gnss_sensor = GnssSensor(self.player)
-        self.camera_manager = CameraManager(self.player, self.hud, self.world)
+        self.camera_manager = CameraManager(self.player, self.hud)
         self.camera_manager.transform_index = cam_pos_index
         self.camera_manager.set_sensor(cam_index, notify=False)
         actor_type = get_actor_display_name(self.player)
         self.hud.notification(actor_type)
-        self.player.set_autopilot(True)  # autopilot mode on
 
     def next_weather(self, reverse=False):
         self._weather_index += -1 if reverse else 1
@@ -220,7 +224,7 @@ class World(object):
         self.player.get_world().set_weather(preset[0])
 
     def tick(self, clock):
-        return self.hud.tick(self, clock)
+        self.hud.tick(self, clock)
 
     def render(self, display):
         self.camera_manager.render(display)
@@ -254,6 +258,9 @@ class KeyboardControl(object):
 
     def __init__(self, world, start_in_autopilot):
         self._autopilot_enabled = start_in_autopilot
+        self.pre_steer = 0
+        self.increment = 0
+
         if isinstance(world.player, carla.Vehicle):
             self._control = carla.VehicleControl()
             world.player.set_autopilot(self._autopilot_enabled)
@@ -267,10 +274,8 @@ class KeyboardControl(object):
         world.hud.notification("Press 'H' or '?' for help.", seconds=4.0)
 
     def parse_events(self, client, world, clock):
-        global automode
-        if restart:
-            self._autopilot_enabled = False
-            world.restart()
+        global Test_on
+
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 return True
@@ -278,7 +283,6 @@ class KeyboardControl(object):
                 if self._is_quit_shortcut(event.key):
                     return True
                 elif event.key == K_BACKSPACE:
-                    automode = True
                     # world.camera_manager.ridar_sensor_on()
                     world.restart()
                 elif event.key == K_F1:
@@ -297,6 +301,9 @@ class KeyboardControl(object):
                     world.camera_manager.set_sensor(event.key - 1 - K_0)
                 elif event.key == K_r and not (pygame.key.get_mods() & KMOD_CTRL):
                     world.camera_manager.toggle_recording()
+                elif event.key == K_o:
+                    Test_on = True
+                    world.restart()
                 elif event.key == K_r and (pygame.key.get_mods() & KMOD_CTRL):
                     if (world.recording_enabled):
                         client.stop_recorder()
@@ -349,6 +356,45 @@ class KeyboardControl(object):
                         world.player.set_autopilot(self._autopilot_enabled)
                         world.hud.notification('Autopilot %s' % ('On' if self._autopilot_enabled else 'Off'))
 
+    def do_action(self, world, milliseconds, action):
+        steer_increment = 5e-4 * milliseconds
+        # self._steer_cache = 0.0
+        # self._control.throttle = 0
+
+        if action == 0:
+            self._control.throttle = 1
+            self._steer_cache = 0.0
+            self._control.brake = 0
+        elif action == 1:
+            self._control.throttle = 0.5
+            self._steer_cache = 0.0
+            self._control.brake = 0
+        elif action == 2:
+            self._control.throttle = 0.5
+            self._steer_cache += steer_increment
+            self._control.brake = 0
+        elif action == 3:
+            self._control.throttle = 0.5
+            self._steer_cache -= steer_increment
+            self._control.brake = 0
+        elif action == 4:
+            self._control.throttle = 0.5
+            self._steer_cache += (steer_increment / 2)
+            self._control.brake = 0
+        elif action == 5:
+            self._control.throttle = 0.5
+            self._steer_cache -= (steer_increment / 2)
+            self._control.brake = 0
+        elif action == 6:
+            self._control.throttle = 0
+            self._steer_cache = 0.0
+            self._control.brake = 1
+
+        self._steer_cache = min(0.7, max(-0.7, self._steer_cache))
+        self._control.steer = round(self._steer_cache, 1)
+        # self._control.brake = 1.0 if brake else 0.0
+        world.player.apply_control(self._control)
+
 
         # if not self._autopilot_enabled:
         #     if isinstance(self._control, carla.VehicleControl):
@@ -399,7 +445,7 @@ class KeyboardControl(object):
 
 
 class HUD(object):
-    def __init__(self, width, height,data_file):
+    def __init__(self, width, height):
         self.dim = (width, height)
         font = pygame.font.Font(pygame.font.get_default_font(), 20)
         fonts = [x for x in pygame.font.get_fonts() if 'mono' in x]
@@ -415,7 +461,6 @@ class HUD(object):
         self._show_info = True
         self._info_text = []
         self._server_clock = pygame.time.Clock()
-        self.file = data_file
 
     def on_world_tick(self, timestamp):
         self._server_clock.tick()
@@ -425,9 +470,8 @@ class HUD(object):
 
     def tick(self, world, clock):
         global restart
-        global automode, capture
-        global capture_image
-        global data_file
+        global automode
+        global Test_on, col, velocity
 
         self._notifications.tick(world, clock)
         if not self._show_info:
@@ -435,18 +479,12 @@ class HUD(object):
         t = world.player.get_transform()
         v = world.player.get_velocity()
         c = world.player.get_control()
-        # print(int(t.location.x), int(t.location.y))
         xx = int(t.location.x)
         yy = int(t.location.y)
-        # if automode:
-        #     data = str(t.location.x) + '\t' + str(t.location.y) + '\t' + str(t.rotation.yaw) + '\t' + str(c.throttle) + '\t' + str(c.steer) + '\t' + str(c.brake) + '\n'
-        #     data_file.write(data)
-        #     # cv2.imwrite('train_data/image/image_data/' + str(image_count) + '.jpg', capture_image)
-        #     # print("count ", image_count)
-        if (abs(17-xx) < 2) and (abs(130-yy) < 2):
-            automode = False
-            data_file.close()
-            restart = True
+
+        if (abs(25.232934951782227 - xx) < 2) and (abs(131.00140380859375 - yy) < 2):
+            respawn(world)
+        velocity = (3.6 * math.sqrt(v.x ** 2 + v.y ** 2 + v.z ** 2))
 
         # print(c.throttle, c.steer, c.brake)
         heading = 'N' if abs(t.rotation.yaw) < 89.5 else ''
@@ -457,6 +495,12 @@ class HUD(object):
         collision = [colhist[x + self.frame_number - 200] for x in range(0, 200)]
         max_col = max(1.0, max(collision))
         collision = [x / max_col for x in collision]
+        if colhist[self.frame_number] > 0:
+            col = True
+        else:
+            col = False
+
+
         vehicles = world.world.get_actors().filter('vehicle.*')
         self._info_text = [
             'Server:  % 16.0f FPS' % self.server_fps,
@@ -500,7 +544,7 @@ class HUD(object):
                     break
                 vehicle_type = get_actor_display_name(vehicle, truncate=22)
                 self._info_text.append('% 4dm %s' % (d, vehicle_type))
-        return t.location.x, t.location.y
+
 
     def toggle_info(self):
         self._show_info = not self._show_info
@@ -709,11 +753,9 @@ class GnssSensor(object):
 
 
 class CameraManager(object):
-    def __init__(self, parent_actor, hud, world):
-        global data_file
+    def __init__(self, parent_actor, hud):
         self.sensor = None
         self.surface = None
-        self.world = world
         self._parent = parent_actor
         self.hud = hud
         self.recording = False
@@ -783,13 +825,19 @@ class CameraManager(object):
         self.index = 6
 
     def render(self, display):
+        global crop_image, Test_on, image_count, temp_image
         if self.surface is not None:
             display.blit(self.surface, (0, 0))
+            if Test_on:
+                crop_image = cv2.cvtColor(temp_image, cv2.COLOR_RGB2GRAY)
+                crop_image = cv2.resize(crop_image, dsize=(84, 84), interpolation=cv2.INTER_AREA)
+                crop_image = np.reshape(crop_image, (84, 84, 1))
+                # image_count += 1
+                # cv2.imwrite('train_data/image/image_data/' + 'pre' + str(image_count) + '.jpg', crop_image)
 
     @staticmethod
     def _parse_image(weak_self, image):
-        global image_count, automode, capture, crop_image
-
+        global crop_image, Test_on, temp_image
         self = weak_self()
         if not self:
             return
@@ -810,43 +858,101 @@ class CameraManager(object):
             image.convert(self.sensors[self.index][1])
             array = np.frombuffer(image.raw_data, dtype=np.dtype("uint8"))
             array = np.reshape(array, (image.height, image.width, 4))
-            # array2 = array[200:400, 200:600, :3]
-            array2 = array[200:400,200:600, :3]
+            array2 = array[200:400, 200:600, :3]
             array2 = array2[:, :, ::-1]
-            if automode:
-                crop_image = cv2.cvtColor(array2, cv2.COLOR_RGB2GRAY)
-                crop_image = cv2.resize(crop_image, dsize=(84, 84), interpolation=cv2.INTER_AREA)
-                crop_image = np.reshape(crop_image, (84, 84, 1))
-                # cv2.imwrite('train_data/image/image_data2/' + 'a' + str(image_count) + '.jpg', capture_image)
-                # image_count += 1
+            temp_image = array2
             self.surface = pygame.surfarray.make_surface(array2.swapaxes(0, 1))
         if self.recording:
             image.save_to_disk('_out/%08d' % image.frame_number)
 
 
-def get_pos(world):
-    t = world.player.get_transform()
-    c = world.player.get_control()
-    return t.location.x, t.location.y, t.rotation.yaw, c.throttle, c.steer, c.brake
-
 # ==============================================================================
 # -- game_loop() ---------------------------------------------------------------
 # ==============================================================================
+def get_d(cur_x, cur_y, x1, y1):
+    d = math.sqrt(math.pow((cur_x - x1), 2) + math.pow((cur_y - y1), 2))
+    return d
+
+
+def set_sub_goal():
+    data_file_path = 'train_data/'
+    file_name = 'self_data1'
+    sub_goal = []
+
+    f = open(data_file_path + file_name + '.txt', 'r')
+    lines = f.readlines()
+    data_length = len(lines)
+
+    for i in range(data_length):
+        data = lines[i].split('\t')
+        if i > 110:
+            if i % 37 == 0 and i > 0:
+                sub_goal.append((float(data[0]), float(data[1]), float(data[2])))
+                # print(float(data[0]), float(data[1]), float(data[2]))
+    return sub_goal
+
+
+def get_sub_goal(sub_goal, index):
+    return sub_goal[index][0], sub_goal[index][1], sub_goal[index][2]
+
+
+def get_h(cur_h, h):
+    h_d = 0
+    if h > 0:
+        if abs(h - cur_h) > 180:
+            h_d = 360 - abs(h - cur_h)
+        else:
+            h_d = abs(h - cur_h)
+    else:
+        if abs(h - cur_h) > 180:
+            h_d = 360 - abs(h - cur_h)
+        else:
+            h_d = abs(h - cur_h)
+
+    return h_d
+
+
+def respawn(world):
+    global count, reward, episode, Train_on
+    t = world.player.get_transform()
+    v = world.player.get_velocity()
+    t.location.x = 130.5
+    t.location.y = 59.2
+    t.location.z = 0
+    t.rotation.yaw = 180
+    v.x = 0
+    v.y = 0
+    v.z = 0
+    count = 0
+    reward = 0
+    world.player.set_transform(t)
+    world.player.set_velocity(v)
+
+
+def get_state(world):
+    t = world.player.get_transform()
+    c = world.player.get_control()
+    state = (t.location.x, t.location.y, t.rotation.yaw, c.throttle, c.steer, c.brake)
+    return state
+
+# def get_reward():
 
 
 def game_loop(args):
-    global Test_on
-    global image_count
-    global capture
-    global crop_image
-    global data_file
-    crop_image = 0
-    image_count =0
+    global Test_on, reward, col, crop_image, max_step, count, total_reward, episode, pre_d, d, Train_on, image_count, step
+    Test_on = False
+    max_step = 3000
+    count = 0
+    reward = 0
+    step = 0
+    image_count = 0
+    episode = 0
+    max_d = 5
+    crop_image = np.zeros((1, 84, 84, 1))
+    model = A2C()
     pygame.init()
     pygame.font.init()
     world = None
-    data_file_path = 'train_data/image/pos_data/'
-    data_file = open(data_file_path + 'heading_data.txt', 'w')
 
     try:
         client = carla.Client(args.host, args.port)
@@ -856,26 +962,75 @@ def game_loop(args):
             (args.width, args.height),
             pygame.HWSURFACE | pygame.DOUBLEBUF)
 
-        hud = HUD(args.width, args.height, data_file)
+        hud = HUD(args.width, args.height)
         world = World(client.get_world(), hud, args.filter, args.rolename)
         controller = KeyboardControl(world, args.autopilot)
 
         clock = pygame.time.Clock()
+        sub_goal = set_sub_goal()
+
         while True:
-            clock.tick_busy_loop(36)
-            if controller.parse_events(client, world, clock):
-                return
+            if Test_on:
+                clock.tick_busy_loop(60)
+                if controller.parse_events(client, world, clock):
+                    return
+                step += 1
 
-            world.tick(clock)
-            world.render(display)
-            pygame.display.flip()
-            if automode:
-                x, y, h, ac, st, br = get_pos(world)
-                data = str(x) + '\t' + str(y) + '\t' + str(h) + '\t' + str(ac) + '\t' + str(st) + '\t' + str(br) + '\n'
-                data_file.write(data)
-                cv2.imwrite('train_data/image/image_data/' + 'a' + str(image_count) + '.jpg', crop_image)
-                image_count += 1
+                tx, ty, th = get_sub_goal(sub_goal, count)
+                cur_state = get_state(world)
+                d = get_d(cur_state[0], cur_state[1], tx, ty)
+                h_d = get_h(cur_state[2], th)
+                if velocity < 1:
+                    reward += -0.1
+                else:
+                    reward += 0.1
 
+                if col:
+                    reward += -1
+
+                if max_d < d:
+                    respawn(world)
+                elif d < 1:
+                    reward += 1
+                    count += 1
+                    a, b, _ = get_sub_goal(sub_goal, count)
+                    max_d = get_d(cur_state[0], cur_state[1], a, b)
+                    max_d = max_d*1.3
+
+                cur_state = np.reshape(cur_state, [1, 6])
+                cur_image = np.reshape(crop_image, [84, 84, 1])
+                # x = [cur_image, cur_state]
+                action = model.get_action(cur_image, cur_state)
+
+                world.tick(clock)
+                controller.do_action(world, clock.get_time(), action)
+                world.render(display) # next scene
+                pygame.display.flip()
+
+                next_state = get_state(world)
+                next_state = np.reshape(next_state, [1, 6])
+                next_image = np.reshape(crop_image, [84, 84, 1])
+
+                model.replaymemory(cur_image, cur_state, action, reward, next_image, next_state)
+                reward = 0
+
+                if len(model.memory) > model.batch_size:
+                    if step > 2000 or col:
+                        episode += 1
+                        model.model_train()
+                        if episode % 50 == 0:
+                            model.actor.save("actor_critic/model_save/actor_critic" + str(episode) + '.h5')
+                            model.critic.save("actor_critic/model_save/critic" + str(episode) + '.h5')
+                        respawn(world)
+                        reward = 0
+                        step = 0
+            else:
+                clock.tick_busy_loop(60)
+                if controller.parse_events(client, world, clock):
+                    return
+                world.tick(clock)
+                world.render(display)
+                pygame.display.flip()
 
     finally:
 
@@ -884,7 +1039,9 @@ def game_loop(args):
 
         if world is not None:
             world.destroy()
-        data_file.close()
+        model.actor.save("actor_critic/model_save/actor" + str(episode) + '.h5')
+        model.critic.save("actor_critic/model_save/critic" + str(episode) + '.h5')
+
         pygame.quit()
 
 
